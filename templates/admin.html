@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+{% block title %}管理後台{% endblock %}
+{% block content %}
+<header class="row-between">
+  <h1>管理後台</h1>
+  <div class="head-links">
+    <a href="/admin/leaderboard" target="_blank" class="board-link">🏆 排行榜</a>
+    <form method="post" action="/admin/logout"><button type="submit" class="link">登出</button></form>
+  </div>
+</header>
+
+<section class="card">
+  {% if not round %}
+    <h2>開新一輪</h2>
+    <form method="post" action="/admin/rounds" class="stack" id="newround">
+      <div class="kind-switch">
+        <label><input type="radio" name="kind" value="normal" checked><span>一般盤<small>自訂 A / B 選項</small></span></label>
+        <label><input type="radio" name="kind" value="pk"><span>⚡ PK 盤<small>投票選 2 人對決</small></span></label>
+        <label><input type="radio" name="kind" value="team"><span>🪢 團體賽<small>兩隊全員對戰</small></span></label>
+      </div>
+      <div id="normal-fields">
+        <label class="field">題目<input name="title" required placeholder="例如：第一場誰會贏？"></label>
+        <div class="two">
+          <label class="field">選項 A<input name="option_a" required></label>
+          <label class="field">選項 B<input name="option_b" required></label>
+        </div>
+      </div>
+      <div id="pk-fields" hidden>
+        <label class="field">PK 遊戲
+          <select name="game" id="game-select">
+            {% for key, (label, desc) in PK_GAMES.items() %}<option value="{{ key }}" data-desc="{{ desc }}">{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <p class="muted small" id="game-desc"></p>
+        <p class="muted small">開盤後先讓大家投票，你關閉投票時會選出得票最高的 2 人。</p>
+      </div>
+      <div id="team-fields" hidden>
+        <input type="hidden" name="game" value="tug" disabled id="team-game">
+        <div class="two">
+          <label class="field">A 隊
+            <select name="team_a">{% for key, label in TEAMS.items() %}<option value="{{ key }}" {% if loop.index == 1 %}selected{% endif %}>{{ label }}（{{ team_counts.get(key, 0) }} 人）</option>{% endfor %}</select>
+          </label>
+          <label class="field">B 隊
+            <select name="team_b">{% for key, label in TEAMS.items() %}<option value="{{ key }}" {% if loop.index == 2 %}selected{% endif %}>{{ label }}（{{ team_counts.get(key, 0) }} 人）</option>{% endfor %}</select>
+          </label>
+        </div>
+        <p class="muted small">{{ GAME_INFO['tug'][1] }}</p>
+        <p class="muted small">團體賽不開放下注，開盤後直接按「開始拔河」。每一場的勝隊每人自動 +{{ team_prize }} 點。準決賽兩場＋決賽＝開三次團體賽。</p>
+      </div>
+      <button type="submit" class="primary">開盤</button>
+    </form>
+  {% else %}
+    {% set labels = {'voting': '🗳️ 投票中', 'open': '開盤中', 'locked': ('🪢 準備開賽' if round.team_a else '已關盤'), 'playing': '⚡ 比賽中'} %}
+    <div class="row-between">
+      <span class="badge {{ round.status }}">{{ labels[round.status] }}</span>
+      <span class="muted small">{% if round.kind == 'pk' %}<span class="pk-tag">{{ '團體' if round.game in GAME_INFO and round.team_a else 'PK' }}</span> {% endif %}第 {{ round.id }} 輪 · {{ round.created_at }}</span>
+    </div>
+    <h2>{{ round.title }}</h2>
+
+    {% if round.kind == 'pk' %}<p class="game-desc-box">{{ GAME_INFO[round.game][1] }}</p>{% endif %}
+    {% if round.kind == 'pk' and round.game != 'live' and round.status in ('locked', 'playing') %}
+      {% set ws_query = '' %}{% set my_side = None %}
+      {% include "_pk_arena.html" %}
+      {% if round.status == 'playing' and not game_alive %}
+        <p class="flash-inline">⚠️ 比賽連線已中斷（可能是伺服器重啟），請按「作廢」退還下注。</p>
+      {% endif %}
+    {% endif %}
+
+    {% if not round.team_a %}<div id="live">{% include "_live.html" %}</div>{% endif %}
+
+    <div class="actions">
+      {% if round.status == 'voting' %}
+        <form method="post" action="/admin/rounds/{{ round.id }}/close-vote"
+              onsubmit="return confirm('關閉投票？得票最高的 2 人會進入 PK（同票隨機抽），然後開放下注。')">
+          <button type="submit" class="primary">🗳️ 關閉投票，選出 PK 人選</button>
+        </form>
+      {% elif round.status == 'open' %}
+        <form method="post" action="/admin/rounds/{{ round.id }}/lock"
+              onsubmit="return confirm('確定關盤？關盤後玩家不能再下注或修改。')">
+          <button type="submit" class="primary">🔒 關盤</button>
+        </form>
+      {% elif round.status == 'locked' and round.kind == 'pk' and round.game == 'live' %}
+        {% for s, name in [('A', round.option_a), ('B', round.option_b)] %}
+          <form method="post" action="/admin/rounds/{{ round.id }}/settle"
+                onsubmit="return confirm('確定 {{ s }}（{{ name }}）贏？結算後無法更改。')">
+            <input type="hidden" name="result" value="{{ s }}">
+            <button type="submit" class="primary">🏆 {{ s }} {{ name }} 贏</button>
+          </form>
+        {% endfor %}
+        <form method="post" action="/admin/rounds/{{ round.id }}/reopen">
+          <button type="submit">重新開盤</button>
+        </form>
+      {% elif round.status == 'locked' and round.kind == 'pk' %}
+        <form method="post" action="/admin/rounds/{{ round.id }}/start"
+              onsubmit="return confirm('{{ '開始拔河？倒數 3 秒後開始，勝隊每人自動 +' ~ team_prize ~ ' 點。' if round.team_a else '開始 PK？倒數 3 秒後開始，結束後自動結算。' }}')">
+          <button type="submit" class="primary">{{ '🪢 開始拔河' if round.team_a else '⚡ 開始 PK' }}</button>
+        </form>
+        {% if not round.team_a %}
+        <form method="post" action="/admin/rounds/{{ round.id }}/reopen">
+          <button type="submit">重新開盤</button>
+        </form>
+        {% endif %}
+      {% elif round.status == 'locked' %}
+        <form method="post" action="/admin/rounds/{{ round.id }}/settle"
+              onsubmit="return confirm('確定正確答案是 A：{{ round.option_a }}？結算後無法更改。')">
+          <input type="hidden" name="result" value="A">
+          <button type="submit" class="primary">✅ A 正確</button>
+        </form>
+        <form method="post" action="/admin/rounds/{{ round.id }}/settle"
+              onsubmit="return confirm('確定正確答案是 B：{{ round.option_b }}？結算後無法更改。')">
+          <input type="hidden" name="result" value="B">
+          <button type="submit" class="primary">✅ B 正確</button>
+        </form>
+        <form method="post" action="/admin/rounds/{{ round.id }}/reopen">
+          <button type="submit">重新開盤</button>
+        </form>
+      {% endif %}
+      <form method="post" action="/admin/rounds/{{ round.id }}/void"
+            onsubmit="return confirm('確定作廢這一輪？所有下注會全額退還。')">
+        <button type="submit" class="danger">作廢</button>
+      </form>
+    </div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>🎁 發放點數</h2>
+  <div class="sub-h">主賽 PK 獲勝 · 每位成員 +{{ prize }}</div>
+  <div class="team-grid">
+    {% for key, label in TEAMS.items() %}
+      <form method="post" action="/admin/awards"
+            onsubmit="return confirm('{{ label }}主賽勝利？{{ label }} {{ team_counts.get(key, 0) }} 位成員每人 +{{ prize }} 點。')">
+        <input type="hidden" name="target" value="team:{{ key }}">
+        <input type="hidden" name="amount" value="{{ prize }}">
+        <input type="hidden" name="reason" value="{{ label }}主賽 PK 勝利">
+        <button type="submit" class="team-btn team-{{ key }}">
+          {{ label }}勝利<small>{{ team_counts.get(key, 0) }} 人</small>
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+
+  <details class="custom-award">
+    <summary>自訂發放（指定隊伍或玩家、可扣點）</summary>
+    <form method="post" action="/admin/awards" class="stack"
+          onsubmit="return confirm('確定發放？')">
+      <label class="field">對象
+        <select name="target" required>
+          <option value="">請選擇</option>
+          <optgroup label="整隊（每位成員）">
+            {% for key, label in TEAMS.items() %}<option value="team:{{ key }}">{{ label }}（{{ team_counts.get(key, 0) }} 人）</option>{% endfor %}
+          </optgroup>
+          <optgroup label="個人">
+            {% for u in board|sort(attribute='name') %}<option value="user:{{ u.id }}">{{ u.name }}</option>{% endfor %}
+          </optgroup>
+        </select>
+      </label>
+      <div class="two">
+        <label class="field">點數（負數＝扣點）<input name="amount" type="number" step="1" required></label>
+        <label class="field">原因<input name="reason" placeholder="例如：小遊戲第一名" required></label>
+      </div>
+      <button type="submit" class="primary">發放</button>
+    </form>
+  </details>
+
+  {% if awards %}
+  <table class="awards">
+    <thead><tr><th>時間</th><th>對象</th><th>原因</th><th class="num">每人</th><th></th></tr></thead>
+    <tbody>
+    {% for a in awards %}
+      <tr>
+        <td class="small nowrap">{{ a.at[11:16] }}</td>
+        <td class="nowrap">{{ a.target }}{% if a.n > 1 %} <span class="muted small">×{{ a.n }}</span>{% endif %}</td>
+        <td>{{ a.reason }}</td>
+        <td class="num {{ 'win' if a.delta > 0 else 'lose' }}">{{ '+' if a.delta > 0 }}{{ a.delta }}</td>
+        <td>
+          <form method="post" action="/admin/awards/{{ a.batch }}/undo"
+                onsubmit="return confirm('撤銷這筆發放？點數會收回。')">
+            <button type="submit" class="link del">撤銷</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>🏆 排行榜</h2>
+  <table>
+    <thead><tr><th>#</th><th>玩家</th><th class="num">總點數</th><th class="num">含押注中</th></tr></thead>
+    <tbody>
+    {% for u in board %}
+      <tr class="{{ 'muted' if u.balance < 10 and u.pending == 0 else '' }}">
+        <td>{{ u.rank }}</td>
+        <td>{{ u.name }}{% if u.team %} <span class="team-tag team-{{ u.team }}">{{ TEAMS[u.team] }}</span>{% endif %}</td>
+        <td class="num">{{ u.total }}</td><td class="num">{{ u.pending or '' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">還沒有玩家</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>玩家與專屬連結</h2>
+  <form method="post" action="/admin/players" class="add-player">
+    <input name="name" placeholder="玩家名字" required>
+    <select name="team" required>
+      <option value="">選隊伍</option>
+      {% for key, label in TEAMS.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+    </select>
+    <button type="submit">新增玩家</button>
+  </form>
+  <ul class="plist">
+    {% for u in board|sort(attribute='id') %}
+      {% set link = base_url ~ '/p/' ~ u.token %}
+      <li class="{{ 'team-' ~ u.team if u.team else '' }}">
+        <div class="prow">
+          <span class="pname">{{ u.name }}</span>
+          <form method="post" action="/admin/players/{{ u.id }}/team">
+            <select name="team" onchange="this.form.submit()" aria-label="{{ u.name }} 的隊伍">
+              <option value="" {% if not u.team %}selected{% endif %}>未分隊</option>
+              {% for key, label in TEAMS.items() %}
+                <option value="{{ key }}" {% if u.team == key %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </div>
+        <div class="prow">
+          <code>{{ link }}</code>
+          <span class="nowrap">
+            <button type="button" class="copy" data-link="{{ link }}">複製</button>
+            <form method="post" action="/admin/players/{{ u.id }}/reset" class="inline-form"
+                  onsubmit="return confirm('重新產生「{{ u.name }}」的連結？舊連結會失效。')">
+              <button type="submit" class="link">重設</button>
+            </form>
+            <form method="post" action="/admin/players/{{ u.id }}/delete" class="inline-form"
+                  onsubmit="return confirm('確定刪除「{{ u.name }}」？他的所有紀錄會一起刪除，連結也會失效。')">
+              <button type="submit" class="link del">刪除</button>
+            </form>
+          </span>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% if past %}
+<section class="card">
+  <h2>歷史輪次</h2>
+  <table>
+    <thead><tr><th>輪</th><th>題目</th><th>結果</th><th class="num">A / B 總額</th></tr></thead>
+    <tbody>
+    {% for r in past %}
+      <tr>
+        <td>{{ r.id }}</td><td>{{ r.title }}</td>
+        <td>{% if r.status == 'void' %}<span class="muted">作廢</span>
+            {% else %}{{ r.result }}（{{ r.option_a if r.result == 'A' else r.option_b }}）{% endif %}</td>
+        <td class="num">{{ r.total_a }} / {{ r.total_b }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="card danger-zone">
+  <h2>🔄 重新開始</h2>
+  <p class="muted small">
+    清空所有輪次、下注與發放紀錄，所有人回到 1000 點。玩家、隊伍與專屬連結會保留，不用重發。<br>
+    執行前會自動備份到 <code>instance/backups/</code>。
+  </p>
+  <form method="post" action="/admin/reset-game" class="inline"
+        onsubmit="return confirm('確定要重新開始？所有點數與紀錄都會歸零。')">
+    <input name="confirm" placeholder="輸入「重新開始」確認" autocomplete="off" required>
+    <button type="submit" class="danger">重新開始</button>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const nr = document.getElementById('newround');
+  if (nr) {
+    const gs = document.getElementById('game-select');
+    const sync = () => {
+      const f = nr.elements, kind = f.kind.value, pk = kind === 'pk', team = kind === 'team';
+      document.getElementById('normal-fields').hidden = kind !== 'normal';
+      document.getElementById('pk-fields').hidden = !pk;
+      document.getElementById('team-fields').hidden = !team;
+      gs.disabled = !pk;                                        // 只送出目前這種盤的遊戲欄位
+      document.getElementById('team-game').disabled = !team;
+      f.title.required = f.option_a.required = f.option_b.required = kind === 'normal';
+      document.getElementById('game-desc').textContent = gs.selectedOptions[0].dataset.desc;
+    };
+    nr.querySelectorAll('input[name=kind]').forEach(r => r.addEventListener('change', sync));
+    gs.addEventListener('change', sync);
+    sync();
+  }
+  document.querySelectorAll('.copy').forEach(b => b.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(b.dataset.link); b.textContent = '已複製'; }
+    catch (e) { prompt('複製這個連結：', b.dataset.link); }
+    setTimeout(() => b.textContent = '複製', 1500);
+  }));
+  {% if round %}
+  setInterval(async () => {
+    try {
+      const r = await fetch('/admin/live', {cache: 'no-store'});
+      if (r.ok && !r.redirected) document.getElementById('live').innerHTML = await r.text();
+    } catch (e) {}
+  }, 3000);
+  {% endif %}
+</script>
+{% endblock %}

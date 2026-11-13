@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}排行榜{% endblock %}
+{% block body_class %}player board-page{% endblock %}
+{% block content %}
+<header class="marquee">
+  <div class="bulbs top" aria-hidden="true"></div>
+  <div class="welcome">LEADERBOARD</div>
+  <h1 class="name">🏆 排行榜</h1>
+  <div class="bulbs bottom" aria-hidden="true"></div>
+</header>
+
+<div id="board">{% include "_board.html" %}</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  setInterval(async () => {
+    try {
+      const r = await fetch('/admin/leaderboard/data', {cache: 'no-store'});
+      if (r.ok && !r.redirected) document.getElementById('board').innerHTML = await r.text();
+    } catch (e) {}
+  }, 5000);
+</script>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}管理員登入{% endblock %}
+{% block content %}
+<div class="card narrow">
+  <h1>管理員登入</h1>
+  <form method="post" action="/admin/login">
+    <label class="field">密碼<input type="password" name="password" autofocus required></label>
+    <button type="submit" class="primary">登入</button>
+  </form>
+</div>
+{% endblock %}

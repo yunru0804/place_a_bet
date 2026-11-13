@@ -1,0 +1,447 @@
+{# PK 擂台（所有手機小遊戲共用）。需要：round, pk_a, pk_b, my_side（'A'/'B'/None）, ws_query（玩家 token；管理員為空字串） #}
+<div class="arena game-{{ round.game }}" id="arena"
+     data-round="{{ round.id }}" data-side="{{ my_side or '' }}" data-q="{{ ws_query }}" data-game="{{ round.game }}"
+     data-name-a="{{ pk_a.name if pk_a else round.option_a }}" data-name-b="{{ pk_b.name if pk_b else round.option_b }}">
+  <div class="arena-head">
+    <span class="arena-label" id="pk-label">{{ '⚡ PK 進行中' if round.status == 'playing' else '等待主持人開始 PK…' }}</span>
+    <span class="arena-timer" id="pk-timer"></span>
+  </div>
+
+  {% for s, p, name in [('A', pk_a, round.option_a), ('B', pk_b, round.option_b)] %}
+    <div class="lane {{ 'team-' ~ p.team if p and p.team else '' }}{{ ' me' if my_side == s else '' }}" id="panel-{{ s }}">
+      <div class="lane-top">
+        <span class="side side-{{ s|lower }}">{{ s }}</span>
+        <b class="lane-name">{{ name }}</b>
+        {% if my_side == s %}<em class="you">你</em>{% endif %}
+        <span class="lane-score" id="big-{{ s }}">–</span>
+      </div>
+      <div class="lane-sub" id="sub-{{ s }}"></div>
+      <div class="track" id="track-{{ s }}" hidden><i id="bar-{{ s }}"></i></div>
+    </div>
+    {% if s == 'A' %}<div class="vs">VS</div>{% endif %}
+  {% endfor %}
+
+  <div class="stage" id="stage">
+    <p class="stage-hint">{{ GAME_INFO[round.game][1] }}</p>
+  </div>
+
+  <div class="pk-count" id="pk-count" hidden></div>
+  <div class="pk-result" id="pk-result" hidden></div>
+</div>
+
+<script>
+(() => {
+  const el = document.getElementById('arena');
+  const ROUND = +el.dataset.round, side = el.dataset.side, q = el.dataset.q, GAME = el.dataset.game;
+  const NAMES = {A: el.dataset.nameA, B: el.dataset.nameB};
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), timer = $('pk-timer'), count = $('pk-count'), label = $('pk-label');
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  let st = null, prev = null, recvAt = 0, ws = null, ended = false, ticking = false;
+  const at = ms => recvAt + ms;                       // 伺服器給的「幾毫秒後」→ 本機時間
+  const send = obj => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+  const buzz = ms => { if (navigator.vibrate) navigator.vibrate(ms); };
+  const changed = (...keys) => !prev || keys.some(k => JSON.stringify(prev[k]) !== JSON.stringify(st[k]));
+  const pop = node => { node.classList.remove('hit'); void node.offsetWidth; node.classList.add('hit'); };
+
+  // ---------------- 各遊戲 ----------------
+  // panels(st) → {A: {big, sub, bar?}, B: {...}}；render() 更新舞台；tick(now) 每幀更新；
+  const G = {};
+
+  // ⚡ 連打
+  let tapLocal = 0;
+  G.tap = {
+    label: s => s.phase === 'play' ? '⚡ 狂點！' : '準備…',
+    panels(s) {
+      const sc = {...s.score};
+      if (side) sc[side] = Math.max(sc[side], tapLocal);
+      const top = Math.max(40, sc.A, sc.B) * 1.1;
+      return {A: {big: sc.A, bar: sc.A / top}, B: {big: sc.B, bar: sc.B / top}};
+    },
+    render(s) {
+      if (!side) { stage.innerHTML = ''; return; }
+      if (!$('tap')) {
+        stage.innerHTML = '<button type="button" class="tap-btn" id="tap" disabled>準備…</button>';
+        $('tap').addEventListener('pointerdown', e => {
+          e.preventDefault();
+          if (!st || st.phase !== 'play' || performance.now() > at(st.ends_in)) return;
+          tapLocal++; send({a: 'tap'}); setPanels(); pop($('tap'));
+        });
+      }
+      const b = $('tap');
+      b.disabled = s.phase !== 'play';
+      b.textContent = s.phase === 'play' ? 'TAP!' : (s.phase === 'done' ? '時間到！' : '準備…');
+    },
+  };
+
+  // 🚦 反應力
+  let goAt = 0, pressedRound = 0;
+  const fmtRT = v => v === 'foul' ? '偷跑！' : v === 'miss' ? '沒按' : (v / 1000).toFixed(3) + ' 秒';
+  G.reaction = {
+    label: s => s.round_no ? `第 ${s.round_no} 回合 · 先拿 ${s.target} 勝` : '準備…',
+    panels(s) {
+      const p = {};
+      for (const k of ['A', 'B']) {
+        const v = s.pressed[k];
+        let sub = '';
+        if (s.phase === 'round_end' && v !== null) sub = fmtRT(v);
+        else if (v !== null) sub = v === 'foul' ? '偷跑！' : '已按 ✓';
+        p[k] = {big: `${s.wins[k]} 勝`, sub};
+      }
+      return p;
+    },
+    render(s) {
+      if (changed('phase', 'round_no') && s.phase === 'go') goAt = recvAt;
+      let cls = 'zone-wait', text = '準備…';
+      if (s.phase === 'wait') { cls = 'zone-wait'; text = side ? '等它變綠…<br><small>別偷按！</small>' : '等待變綠…'; }
+      else if (s.phase === 'go') { cls = 'zone-go'; text = side ? '按！' : 'GO!'; }
+      else if (s.phase === 'round_end') {
+        cls = 'zone-end';
+        text = s.round_winner ? `${esc(NAMES[s.round_winner])}<br><small>拿下第 ${s.round_no} 回合</small>` : '這回合不算<br><small>重來</small>';
+      }
+      if (side && pressedRound === s.round_no && (s.phase === 'wait' || s.phase === 'go')) {
+        text = s.pressed[side] === 'foul' ? '偷跑了！😱' : '已按！';
+      }
+      if (!$('zone')) {
+        stage.innerHTML = '<div class="zone" id="zone"></div>';
+        if (side) $('zone').addEventListener('pointerdown', e => {
+          e.preventDefault();
+          if (!st || pressedRound === st.round_no) return;
+          if (st.phase === 'wait') { pressedRound = st.round_no; send({a: 'press'}); buzz(200); }
+          else if (st.phase === 'go') {
+            pressedRound = st.round_no; send({a: 'press', rt: Math.round(performance.now() - goAt)}); buzz(20);
+          } else return;
+          G.reaction.render(st);
+        });
+      }
+      const z = $('zone');
+      z.className = 'zone ' + cls + (side ? ' mine' : '');
+      z.innerHTML = text;
+      if (s.phase === 'go' && changed('phase')) buzz(side ? 40 : 0);
+    },
+  };
+
+  // ⏱ 停錶（3 回合，累計差距）
+  let runStart = 0, myStop = null, myStopRound = 0;
+  const sec = ms => (ms / 1000).toFixed(2);
+  G.stopwatch = {
+    label: s => s.round_no ? `第 ${s.round_no}/${s.rounds} 回合 · 目標 ${s.target / 1000} 秒` : '準備…',
+    panels(s) {
+      const p = {};
+      for (const k of ['A', 'B']) {
+        const v = s.stopped[k];
+        const tot = s.history.length ? `累計差 ${sec(s.total[k])} 秒` : '';
+        if (s.phase === 'done') p[k] = {big: sec(s.total[k]), sub: '累計差距（秒）'};
+        else if (s.phase === 'round_end') {
+          p[k] = v === null ? {big: '沒按', sub: tot} : {big: sec(v) + ' 秒', sub: `差 ${sec(Math.abs(v - s.target))} 秒 · ${tot}`};
+        } else p[k] = {big: v ? '已停 ✓' : (s.phase === 'run' ? '計時中' : '–'), sub: tot};
+      }
+      return p;
+    },
+    render(s) {
+      if (s.phase === 'run' && changed('phase', 'round_no')) { runStart = recvAt; myStop = null; myStopRound = s.round_no; }
+      if (!$('clock')) {
+        stage.innerHTML = '<div class="sw-target" id="swtarget"></div><div class="clock" id="clock">0.00</div>' +
+          (side ? '<button type="button" class="tap-btn stop-btn" id="stopbtn" disabled>準備…</button>' : '');
+        if (side) $('stopbtn').addEventListener('pointerdown', e => {
+          e.preventDefault();
+          if (!st || st.phase !== 'run' || myStop !== null) return;
+          myStop = Math.round(performance.now() - runStart);
+          send({a: 'stop', ms: myStop}); buzz(30); G.stopwatch.render(st);
+        });
+      }
+      $('swtarget').textContent = s.round_no ? `🎯 目標 ${s.target / 1000} 秒` : '';
+      const b = $('stopbtn');
+      if (b) {
+        const stopped = myStop !== null && myStopRound === s.round_no;
+        b.disabled = s.phase !== 'run' || stopped;
+        b.textContent = stopped ? '已按停！' : (s.phase === 'run' ? 'STOP' : (s.phase === 'done' ? '結束' : '準備…'));
+      }
+      const c = $('clock');
+      if (s.phase === 'countdown') { c.textContent = '0.00'; c.classList.remove('hidden-time'); }
+      else if (s.phase === 'round_end' || s.phase === 'done') { c.textContent = sec(s.target); c.classList.remove('hidden-time'); }
+    },
+    tick(now) {
+      const c = $('clock');
+      if (!c || !st || st.phase !== 'run') return;
+      const ms = now - runStart;
+      const hide = (myStop !== null && myStopRound === st.round_no) || ms >= st.show_ms;
+      c.textContent = hide ? '?.??' : sec(ms);
+      c.classList.toggle('hidden-time', hide);
+    },
+  };
+
+  // 🧮 搶答心算
+  let answered = 0;
+  G.math = {
+    label: s => s.q_no ? `第 ${s.q_no}/${s.total_q} 題` : '準備…',
+    panels(s) {
+      const p = {};
+      for (const k of ['A', 'B']) {
+        let sub = '';
+        if (s.q_winner === k) sub = '答對 ✓';
+        else if (s.wrong[k]) sub = '答錯 ✗';
+        p[k] = {big: `${s.points[k]} 分`, sub};
+      }
+      return p;
+    },
+    render(s) {
+      if (s.phase !== 'question' && s.phase !== 'reveal') {
+        if (s.phase === 'done') stage.innerHTML = '';
+        return;
+      }
+      if (changed('q_no', 'phase') || !$('opts')) {
+        stage.innerHTML = `<div class="mq">${esc(s.question)}</div><div class="opts" id="opts">` +
+          s.options.map((o, i) => `<button type="button" class="opt" data-i="${i}">${o}</button>`).join('') + '</div>';
+        if (side) $('opts').addEventListener('pointerdown', e => {
+          const b = e.target.closest('.opt');
+          if (!b || !st || st.phase !== 'question' || answered === st.q_no || st.wrong[side] || st.q_winner) return;
+          e.preventDefault();
+          answered = st.q_no; b.classList.add('chosen'); send({a: 'ans', i: +b.dataset.i}); buzz(15);
+          G.math.render(st);
+        });
+      }
+      const mine = side && (answered === s.q_no || s.wrong[side]);
+      document.querySelectorAll('#opts .opt').forEach((b, i) => {
+        b.disabled = !side || s.phase !== 'question' || mine || !!s.q_winner;
+        b.classList.toggle('correct', s.phase === 'reveal' && i === s.answer);
+      });
+      let info = $('qinfo');
+      if (!info) { info = document.createElement('div'); info.id = 'qinfo'; info.className = 'qinfo'; stage.appendChild(info); }
+      info.textContent = s.phase === 'reveal'
+        ? (s.q_winner ? `${NAMES[s.q_winner]} 搶到 1 分！` : '沒人答對')
+        : (side && s.wrong[side] ? '答錯了，等下一題…' : (side && answered === s.q_no ? '已作答…' : ''));
+    },
+  };
+
+  // 🧠 記憶（10 回合，累計時間）
+  const PADS = ['🔴', '🔵', '🟢', '🟡'];
+  let flashTimers = [];
+  const flash = (i, ms = 350) => {
+    const p = document.querySelector(`.pad[data-i="${i}"]`);
+    if (!p) return;
+    p.classList.add('lit'); setTimeout(() => p.classList.remove('lit'), ms);
+  };
+  G.memory = {
+    label: s => s.round_no ? `第 ${s.round_no}/${s.rounds} 回合 · ${s.level} 個色塊` : '準備…',
+    panels(s) {
+      const p = {};
+      for (const k of ['A', 'B']) {
+        const t = s.times[k];
+        let sub = '';
+        if (s.status[k] === 'ok') sub = `✓ ${sec(t)} 秒`;
+        else if (s.status[k] === 'fail') sub = `✗ 罰 ${sec(t)} 秒`;
+        else if (s.status[k] === 'playing') sub = `輸入中… ${s.progress[k]}/${s.level}`;
+        p[k] = {big: sec(s.total[k]) + ' 秒', sub};   // 累計秒數（本回合結束後才加入）
+      }
+      return p;
+    },
+    render(s) {
+      if (!$('pads')) {
+        stage.innerHTML = '<div class="mem-info" id="meminfo"></div><div class="pads" id="pads">' +
+          PADS.map((_, i) => `<button type="button" class="pad pad-${i}" data-i="${i}"></button>`).join('') + '</div>';
+        if (side) $('pads').addEventListener('pointerdown', e => {
+          const b = e.target.closest('.pad');
+          if (!b || !st || st.phase !== 'input' || st.status[side] !== 'playing') return;
+          e.preventDefault();
+          flash(+b.dataset.i, 200); send({a: 'pad', i: +b.dataset.i}); buzz(10);
+        });
+      }
+      if (s.phase === 'show' && changed('phase', 'round_no')) {
+        flashTimers.forEach(clearTimeout);
+        flashTimers = s.seq.map((k, i) => setTimeout(() => flash(k, s.item_ms * 0.7), at(s.lead_ms + i * s.item_ms) - performance.now()));
+      }
+      const mine = side ? s.status[side] : null;
+      const info = {
+        countdown: '準備…', show: '👀 記住順序！',
+        input: side ? (mine === 'playing' ? '換你按！越快越好' : (mine === 'ok' ? '完成！等對手…' : '按錯了…')) : '選手輸入中…',
+        round_end: `第 ${s.round_no} 回合結束`, done: '',
+      }[s.phase] || '';
+      $('meminfo').textContent = info;
+      $('pads').classList.toggle('active', !!side && s.phase === 'input' && mine === 'playing');
+    },
+  };
+
+  // 🎭 閃現辨識
+  let optsAt = 0, pickedRound = 0;
+  G.flash = {
+    label: s => s.round_no ? `第 ${s.round_no}/${s.rounds} 回合` : '準備…',
+    panels(s) {
+      const p = {};
+      for (const k of ['A', 'B']) {
+        let sub = '';
+        if (s.phase === 'reveal') {
+          const pk = s.picks[k];
+          sub = !pk ? '沒作答' : (pk.i === s.answer ? `✓ ${sec(pk.ms)} 秒` : `✗ 選了 ${s.options[pk.i]}`);
+        } else if (s.phase === 'answer') sub = s.answered[k] ? '已作答' : '思考中…';
+        else if (s.phase === 'done') sub = `答對的作答時間 ${sec(s.time[k])} 秒`;
+        p[k] = {big: `${s.points[k]} 分`, sub};
+      }
+      return p;
+    },
+    render(s) {
+      if (!$('theater')) {
+        stage.innerHTML = '<div class="theater" id="theater"><div class="fly" id="fly"></div>' +
+          '<div class="curtain left"></div><div class="curtain right"></div><div class="theater-msg" id="tmsg"></div></div>' +
+          '<div class="fopts" id="fopts"></div><div class="qinfo" id="finfo"></div>';
+        if (side) $('fopts').addEventListener('pointerdown', e => {
+          const b = e.target.closest('.fopt');
+          if (!b || !st || st.phase !== 'answer' || pickedRound === st.round_no) return;
+          e.preventDefault();
+          pickedRound = st.round_no; b.classList.add('chosen');
+          send({a: 'pick', i: +b.dataset.i, ms: Math.round(performance.now() - optsAt)}); buzz(15);
+          G.flash.render(st);
+        });
+      }
+      const th = $('theater'), fly = $('fly'), opts = $('fopts');
+      if (s.phase === 'flash' && changed('phase', 'round_no')) {
+        opts.innerHTML = ''; $('tmsg').textContent = '';
+        th.classList.remove('open');
+        // 窗簾開口 gap%：每片窗簾（寬 51%）往外移 gap/2，用自身寬度的百分比表示
+        th.style.setProperty('--shift', Math.min(100, (s.gap / 2) / 51 * 100) + '%');
+        fly.textContent = s.emoji;
+        fly.style.top = s.y + '%';
+        const from = s.direction === 'ltr' ? '-30%' : '130%', to = s.direction === 'ltr' ? '130%' : '-30%';
+        fly.style.left = from;
+        const openAt = at(s.lead_ms) - performance.now();
+        setTimeout(() => {
+          th.classList.add('open');
+          fly.animate([{left: from}, {left: to}], {duration: s.flight_ms, delay: s.curtain_ms, fill: 'forwards', easing: 'linear'});
+          setTimeout(() => { th.classList.remove('open'); fly.textContent = ''; }, s.curtain_ms + s.flight_ms);
+        }, Math.max(0, openAt));
+      }
+      if (s.phase === 'countdown') $('tmsg').textContent = '👀 盯緊窗簾！';
+      if ((s.phase === 'answer' || s.phase === 'reveal') && (changed('phase', 'round_no') || !opts.children.length)) {
+        if (s.phase === 'answer') optsAt = recvAt;
+        $('tmsg').textContent = s.phase === 'answer' ? '剛剛飛過的是？' : '';
+        opts.innerHTML = s.options.map((o, i) => `<button type="button" class="fopt" data-i="${i}">${o}</button>`).join('');
+      }
+      if (s.phase === 'reveal') {
+        $('tmsg').textContent = '';
+        fly.textContent = ''; th.classList.add('reveal');
+        th.dataset.answer = s.options[s.answer];
+      } else th.classList.remove('reveal');
+      const mine = side && pickedRound === s.round_no;
+      opts.querySelectorAll('.fopt').forEach((b, i) => {
+        b.disabled = !side || s.phase !== 'answer' || mine;
+        b.classList.toggle('correct', s.phase === 'reveal' && i === s.answer);
+        if (s.phase === 'reveal' && s.picks) {
+          const who = ['A', 'B'].filter(k => s.picks[k] && s.picks[k].i === i);
+          b.dataset.who = who.join(' ');
+        }
+      });
+      $('finfo').textContent = s.phase === 'answer'
+        ? (side ? (mine ? '已作答，等對手…' : '快選！') : '選手作答中…')
+        : (s.phase === 'reveal' ? `答案是 ${s.options[s.answer]}` : '');
+    },
+  };
+
+  // 🪢 團體拔河
+  let tugLocal = 0;
+  G.tug = {
+    label: s => s.phase === 'play' ? '🪢 用力拉！' : (s.phase === 'done' ? '比賽結束' : '準備…'),
+    panels(s) {
+      const p = {};
+      for (const k of ['A', 'B']) {
+        let sub = `${s.size[k]} 人`;
+        if (s.phase === 'done' && s.mvp && s.mvp[k]) sub = `MVP ${s.mvp[k].name}（${s.mvp[k].taps} 下）`;
+        p[k] = {big: `${s.taps[k]} 下`, sub};
+      }
+      return p;
+    },
+    render(s) {
+      if (!$('rope')) {
+        stage.innerHTML =
+          `<div class="rope-wrap"><div class="rope-zone za ${$('panel-A').className.match(/team-\w+/)?.[0] || ''}"></div>` +
+          `<div class="rope-zone zb ${$('panel-B').className.match(/team-\w+/)?.[0] || ''}"></div>` +
+          '<div class="rope" id="rope"></div><div class="rope-mid"></div>' +
+          '<div class="knot" id="knot">🎀</div>' +
+          `<span class="rope-end ea">${esc(NAMES.A)}</span><span class="rope-end eb">${esc(NAMES.B)}</span></div>` +
+          (side ? `<button type="button" class="tap-btn tug-btn ${$('panel-' + side).className.match(/team-\w+/)?.[0] || ''}" id="tugbtn" disabled>準備…</button>` : '');
+        if (side) $('tugbtn').addEventListener('pointerdown', e => {
+          e.preventDefault();
+          if (!st || st.phase !== 'play') return;
+          tugLocal++; send({a: 'tap'}); pop($('tugbtn'));
+        });
+      }
+      // 繩結：pos -100（A 贏）→ +100（B 贏），對應畫面 8% → 92%
+      $('knot').style.left = (50 + s.pos * 0.42) + '%';
+      $('knot').classList.toggle('lead-a', s.pos < 0);
+      $('knot').classList.toggle('lead-b', s.pos > 0);
+      const b = $('tugbtn');
+      if (b) {
+        b.disabled = s.phase !== 'play';
+        b.textContent = s.phase === 'play' ? (side === 'A' ? '⬅ 拉！' : '拉！➡') : (s.phase === 'done' ? '結束' : '準備…');
+      }
+    },
+  };
+
+  // ---------------- 共用 ----------------
+  const setPanels = () => {
+    if (!st) return;
+    const p = G[GAME].panels(st);
+    for (const k of ['A', 'B']) {
+      $('big-' + k).textContent = p[k].big;
+      $('sub-' + k).textContent = p[k].sub || '';
+      const has = p[k].bar !== undefined;
+      $('track-' + k).hidden = !has;
+      if (has) $('bar-' + k).style.width = Math.min(100, p[k].bar * 100) + '%';
+    }
+  };
+
+  const tick = () => {
+    if (ended || !st) { ticking = false; return; }
+    const now = performance.now();
+    if (st.phase === 'countdown') {
+      count.hidden = false;
+      count.textContent = Math.max(1, Math.ceil((at(st.ends_in) - now) / 1000));
+    } else count.hidden = true;
+    timer.textContent = st.ends_in !== null && st.phase !== 'countdown'
+      ? Math.max(0, (at(st.ends_in) - now) / 1000).toFixed(1) : '';
+    if (G[GAME].tick) G[GAME].tick(now);
+    requestAnimationFrame(tick);
+  };
+
+  const onState = m => {
+    prev = st; st = m; recvAt = performance.now();
+    if (!prev) {
+      window.pkLive = true;              // 告訴頁面輪詢：比賽中不要重新整理
+      document.body.classList.add('pk-on');  // 比賽中隱藏其他區塊，擂台佔滿畫面
+      window.scrollTo(0, 0);
+      document.querySelectorAll('.badge.locked').forEach(b => { b.className = 'badge playing'; b.textContent = '⚡ 比賽中'; });
+    }
+    label.textContent = G[GAME].label(m);
+    G[GAME].render(m);
+    setPanels();
+    if (!ticking) { ticking = true; requestAnimationFrame(tick); }
+  };
+
+  const finish = m => {
+    ended = true;
+    count.hidden = true;
+    timer.textContent = '';
+    stage.querySelectorAll('button').forEach(b => b.disabled = true);
+    const r = $('pk-result');
+    r.hidden = false;
+    r.innerHTML = m.result
+      ? `🏆 ${esc(NAMES[m.result])} 獲勝！<small>${esc(m.summary)}</small>`
+      : (m.summary === '本輪已作廢' ? '本輪已作廢' : `🤝 平手！本輪作廢退還<small>${esc(m.summary)}</small>`);
+    if (m.result) buzz([80, 40, 80]);
+    setTimeout(() => location.replace(location.pathname), 3500);
+  };
+
+  const connect = () => {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws${q ? '?t=' + encodeURIComponent(q) : ''}`);
+    ws.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if (m.round !== ROUND || ended) return;
+      if (m.type === 'state') onState(m);
+      else if (m.type === 'end') finish(m);
+    };
+    ws.onclose = () => { if (!ended) setTimeout(connect, 1000); };
+  };
+  connect();
+  stage.addEventListener('contextmenu', e => e.preventDefault());
+})();
+</script>

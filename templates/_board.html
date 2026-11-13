@@ -1,0 +1,25 @@
+{% if round %}
+  <div class="board-status">
+    <span class="badge {{ round.status }}">{{ {'voting': '🗳️ 投票中', 'open': '● 開放下注', 'locked': '🔒 停止下注', 'playing': '⚡ PK 進行中'}[round.status] }}</span>
+    <span class="board-round">ROUND {{ round.id }} · {{ round.title }}</span>
+  </div>
+{% endif %}
+
+<ol class="board">
+{% for u in board %}
+  {% set out = u.balance < min_bet and u.pending == 0 %}
+  <li class="rank-{{ u.rank if u.rank <= 3 else 'n' }}{{ ' out' if out else '' }}">
+    <span class="rank">{% if u.rank == 1 %}🥇{% elif u.rank == 2 %}🥈{% elif u.rank == 3 %}🥉{% else %}{{ u.rank }}{% endif %}</span>
+    <span class="who">
+      {{ u.name }}{% if out %}<small>出局</small>{% endif %}
+      {% if u.team %}<span class="team-tag team-{{ u.team }}">{{ TEAMS[u.team] }}</span>{% endif %}
+    </span>
+    <span class="score">
+      {{ u.total }}
+      {% if u.pending %}<small>含押注中 {{ u.pending }}</small>{% endif %}
+    </span>
+  </li>
+{% else %}
+  <li class="empty">還沒有玩家</li>
+{% endfor %}
+</ol>

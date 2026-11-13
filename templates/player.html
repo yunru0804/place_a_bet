@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+{% block title %}{{ user.name }} · 下注{% endblock %}
+{% block body_class %}player{% if user.team %} team-{{ user.team }}{% endif %}{% endblock %}
+{% block content %}
+
+<header class="marquee">
+  <div class="bulbs top" aria-hidden="true"></div>
+  <div class="welcome">WELCOME</div>
+  <h1 class="name">{{ user.name }}</h1>
+  {% if user.team %}<div class="team-flag">{{ TEAMS[user.team] }}</div>{% endif %}
+  <div class="bulbs bottom" aria-hidden="true"></div>
+</header>
+
+<section class="bank">
+  <div class="coin" aria-hidden="true">$</div>
+  <div class="bank-text">
+    <div class="label">我的籌碼</div>
+    <div class="points" id="points" data-value="{{ user.balance }}">{{ user.balance }}</div>
+  </div>
+  {% if user.pending %}
+    <div class="pending-tag">押注中<b>{{ user.pending }}</b></div>
+  {% endif %}
+</section>
+
+{% set pk = round and round.kind == 'pk' %}
+{% if eliminated and not pk %}
+  <section class="table-card state-card">
+    <div class="gameover">GAME OVER</div>
+    <p>你的籌碼用完了<br>隊伍贏得主賽就能復活！💪</p>
+  </section>
+
+{% elif not round %}
+  <section class="table-card state-card">
+    <div class="dice" aria-hidden="true"><span>🎲</span><span>🎲</span></div>
+    <h2>等待開盤中</h2>
+    <p class="muted">主持人開盤後畫面會自動更新</p>
+  </section>
+
+{% else %}
+  {% set badges = {'voting': '🗳️ 投票中', 'open': '● 開放下注', 'locked': ('🪢 準備開賽' if is_team else '🔒 停止下注'), 'playing': '⚡ PK 進行中'} %}
+  <section class="table-card">
+    <div class="round-head">
+      <span class="badge {{ round.status }}">{{ badges[round.status] }}</span>
+      <span class="round-no">{% if pk %}<span class="pk-tag">{{ '團體' if is_team else 'PK' }}</span> {% endif %}ROUND {{ round.id }}</span>
+    </div>
+    <h2 class="question">{{ round.title }}</h2>
+    {% if pk %}<p class="game-desc-box">{{ GAME_INFO[round.game][1] }}</p>{% endif %}
+
+    {% if round.status == 'voting' %}
+      <p class="vote-hint">投票選出這輪要 PK 的人！<br><small>得票最高的 2 人上場 · 不能投自己 · 可以改票</small></p>
+      <form method="post" action="/p/{{ user.token }}/vote" class="vote-grid">
+        {% for c in candidates %}
+          <button type="submit" name="candidate" value="{{ c.id }}"
+                  class="vote-btn{{ ' team-' ~ c.team if c.team else '' }}{{ ' picked' if my_vote == c.id else '' }}">
+            {{ c.name }}{% if my_vote == c.id %}<small>✓ 我的票</small>{% endif %}
+          </button>
+        {% endfor %}
+      </form>
+
+    {% else %}
+      {% if my_side %}
+        {% if is_team %}
+          <div class="challenger">🪢 你的隊伍上場！全隊一起拉！<small>贏了每人 +500 點</small></div>
+        {% else %}
+          <div class="challenger">🔥 你被選為 PK 選手！{% if round.status == 'open' %}<small>你只能押自己</small>{% endif %}</div>
+        {% endif %}
+      {% endif %}
+
+      {% if bet %}
+        <div class="ticket">
+          <div class="ticket-label">我的注單</div>
+          <div class="ticket-body">
+            <span class="side side-{{ bet.choice|lower }}">{{ bet.choice }}</span>
+            <span class="ticket-opt">{{ round.option_a if bet.choice == 'A' else round.option_b }}</span>
+            <span class="ticket-amt">{{ bet.amount }}</span>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if round.status == 'open' and eliminated %}
+        <p class="muted center-text">籌碼不足，這輪只能觀戰 👀</p>
+      {% elif round.status == 'open' %}
+        <form method="post" action="/p/{{ user.token }}/bet" id="betform">
+          <div class="choices" id="choices">
+            {% for s, label, p in [('A', round.option_a, pk_a), ('B', round.option_b, pk_b)] %}
+              {% set locked_out = my_side and my_side != s %}
+              <label class="choice choice-{{ s|lower }}{{ ' disabled' if locked_out else '' }}">
+                <input type="radio" name="choice" value="{{ s }}"
+                       {% if (bet and bet.choice == s) or my_side == s %}checked{% endif %}
+                       {% if locked_out %}disabled{% endif %}>
+                <span class="card-face"><b>{{ s }}</b><em>{{ label }}</em>
+                  {% if p and p.team %}<span class="team-tag team-{{ p.team }}">{{ TEAMS[p.team] }}</span>{% endif %}
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+
+          <div class="pot">
+            <label for="amount" class="pot-label">押注籌碼 <small>{{ min_bet }} ~ {{ max_bet }}</small></label>
+            <input id="amount" name="amount" type="number" min="{{ min_bet }}" max="{{ max_bet }}" step="1"
+                   inputmode="numeric" value="{{ bet.amount if bet else 0 }}">
+          </div>
+
+          <div class="chips">
+            <button type="button" class="chip c10"  data-add="10"><span>10</span></button>
+            <button type="button" class="chip c50"  data-add="50"><span>50</span></button>
+            <button type="button" class="chip c100" data-add="100"><span>100</span></button>
+            <button type="button" class="chip c500" data-add="500"><span>500</span></button>
+          </div>
+          <div class="chip-tools">
+            <button type="button" class="ghost" id="clear">清除</button>
+            <button type="button" class="allin" id="allin">ALL IN 🔥</button>
+          </div>
+
+          <button type="submit" class="gold-btn" id="submit">確認下注</button>
+          <p class="hint">最少押 {{ min_bet }} 點，開盤期間可以隨時修改</p>
+        </form>
+
+      {% elif pk and round.game == 'live' %}
+        <div class="live-vs">
+          <div class="live-name side-a-bg">{{ round.option_a }}</div>
+          <div class="vs">VS</div>
+          <div class="live-name side-b-bg">{{ round.option_b }}</div>
+          <p class="muted">{{ '上場吧！💪' if my_side else '現場對決中，等待主持人公布結果…' }}</p>
+        </div>
+
+      {% elif pk %}
+        {% set ws_query = user.token %}
+        {% include "_pk_arena.html" %}
+
+      {% else %}
+        <div class="wheel-wrap">
+          <div class="wheel" aria-hidden="true"><div class="ball"></div></div>
+          <p><b>等待開獎…</b></p>
+          <p class="muted">{{ '祝你好運 🍀' if bet else '本輪你沒有下注' }}</p>
+        </div>
+      {% endif %}
+    {% endif %}
+  </section>
+{% endif %}
+
+{% if history %}
+<section class="history">
+  <h3>戰績</h3>
+  <ul>
+  {% for h in history %}
+    <li>
+    {% if h.kind == 'award' %}
+      <span class="h-round">{{ '🏆' if h.delta > 0 else '⚠️' }}</span>
+      <span class="h-title">{{ h.title }}<small>{{ h.at[11:16] }}</small></span>
+      <span class="h-res {{ 'win' if h.delta > 0 else 'lose' }}">{{ '+' if h.delta > 0 }}{{ h.delta }}</span>
+    {% else %}
+      <span class="h-round">#{{ h.id }}</span>
+      <span class="h-title">{{ h.title }}<small>押 {{ h.choice }} · {{ h.amount }}</small></span>
+      {% if h.status == 'void' %}<span class="h-res void">退還</span>
+      {% elif h.choice == h.result %}<span class="h-res win">+{{ h.amount }}</span>
+      {% else %}<span class="h-res lose">-{{ h.amount }}</span>{% endif %}
+    {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{# 結果彈窗：最新一筆（開獎或收到點數）沒看過就跳出來 #}
+{% if history %}
+  {% set h = history[0] %}
+  {% if h.kind == 'award' %}
+    {% set kind = 'win' if h.delta > 0 else 'lose' %}
+  {% elif h.status == 'void' %}
+    {% set kind = 'void' %}
+  {% else %}
+    {% set kind = 'win' if h.choice == h.result else 'lose' %}
+  {% endif %}
+  <div class="result-overlay" id="result" hidden
+       data-key="{{ h.key }}" data-kind="{{ kind }}"
+       data-all="{{ history | map(attribute='key') | join(',') }}">
+    <div class="result-card">
+      {% if h.kind == 'award' %}
+        <div class="result-emoji">{{ '🏆' if h.delta > 0 else '⚠️' }}</div>
+        <div class="result-title {{ kind }}">{{ h.title }}</div>
+        <div class="result-amt {{ kind }}">{{ '+' if h.delta > 0 }}{{ h.delta }}</div>
+        <div class="result-sub">{{ '點數已入帳！' if h.delta > 0 else '點數已扣除' }}</div>
+      {% elif h.status == 'void' %}
+        <div class="result-emoji">↩️</div>
+        <div class="result-title">本輪作廢</div>
+        <div class="result-sub">{{ h.amount }} 點已退還</div>
+      {% elif h.choice == h.result %}
+        <div class="result-emoji">🎉</div>
+        <div class="result-title win">你贏了！</div>
+        <div class="result-amt win">+{{ h.amount }}</div>
+        <div class="result-sub">答案是 {{ h.result }}（{{ h.option_a if h.result == 'A' else h.option_b }}）</div>
+      {% else %}
+        <div class="result-emoji">💸</div>
+        <div class="result-title lose">差一點…</div>
+        <div class="result-amt lose">-{{ h.amount }}</div>
+        <div class="result-sub">答案是 {{ h.result }}（{{ h.option_a if h.result == 'A' else h.option_b }}）</div>
+      {% endif %}
+      <button type="button" class="gold-btn" id="result-close">繼續</button>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const token = {{ user.token | tojson }} + '_' + {{ epoch | tojson }};
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  };
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---- 籌碼數字：從上次看到的數字滾動到現在 ----
+  const pts = document.getElementById('points');
+  const now = +pts.dataset.value;
+  const prev = store.get('bal_' + token);
+  store.set('bal_' + token, now);
+  if (prev !== null && +prev !== now && !reduceMotion) {
+    const from = +prev, t0 = performance.now(), dur = 1200;
+    pts.classList.add(now > from ? 'up' : 'down');
+    const tick = t => {
+      const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      pts.textContent = Math.round(from + (now - from) * e);
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  // ---- 結果彈窗：每筆結果只跳一次（第一次打開頁面時，既有紀錄都視為看過）----
+  const ov = document.getElementById('result');
+  const seenKey = 'seen2_' + token;
+  const seenRaw = store.get(seenKey);
+  const seen = new Set(seenRaw === null ? [] : seenRaw.split(','));
+  if (ov) {
+    if (seenRaw !== null && !seen.has(ov.dataset.key)) {
+      ov.hidden = false;
+      if (ov.dataset.kind === 'win' && !reduceMotion) confetti();
+      if (navigator.vibrate) navigator.vibrate(ov.dataset.kind === 'win' ? [60, 40, 60] : 120);
+    }
+    store.set(seenKey, ov.dataset.all);
+    document.getElementById('result-close').onclick = () => ov.hidden = true;
+  } else if (seenRaw === null) {
+    store.set(seenKey, '');
+  }
+
+  function confetti() {
+    const colors = ['#f7c948', '#e63946', '#2ec4b6', '#ffffff', '#ff8c42'];
+    const box = document.createElement('div');
+    box.className = 'confetti';
+    for (let i = 0; i < 90; i++) {
+      const s = document.createElement('i');
+      s.style.left = Math.random() * 100 + '%';
+      s.style.background = colors[i % colors.length];
+      s.style.animationDelay = Math.random() * 0.8 + 's';
+      s.style.animationDuration = 2 + Math.random() * 1.5 + 's';
+      s.style.setProperty('--drift', (Math.random() * 120 - 60) + 'px');
+      box.appendChild(s);
+    }
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), 4500);
+  }
+
+  // ---- 下注表單：籌碼 ----
+  const form = document.getElementById('betform');
+  if (form) {
+    const amt = document.getElementById('amount');
+    const max = +amt.max;
+    const submit = document.getElementById('submit');
+    const shake = el => { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); };
+    const min = +amt.min;
+    const refresh = () => {
+      const v = +amt.value || 0;
+      submit.textContent = v >= min ? `確認下注 ${v}` : `最少押 ${min} 點`;
+      submit.disabled = v < min;
+    };
+    const setAmt = v => {
+      if (v > max) { v = max; shake(amt); }
+      amt.value = Math.max(0, v);
+      amt.classList.remove('bump'); void amt.offsetWidth; amt.classList.add('bump');
+      refresh();
+    };
+    document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+      if (navigator.vibrate) navigator.vibrate(8);
+      c.classList.remove('tap'); void c.offsetWidth; c.classList.add('tap');
+      setAmt((+amt.value || 0) + +c.dataset.add);
+    }));
+    document.getElementById('clear').onclick = () => setAmt(0);
+    document.getElementById('allin').onclick = () => setAmt(max);
+    amt.addEventListener('input', refresh);
+    form.addEventListener('submit', e => {
+      if (!form.querySelector('input[name=choice]:checked')) {
+        e.preventDefault();
+        shake(document.getElementById('choices'));
+      }
+    });
+    refresh();
+  }
+
+  // ---- 主持人開盤 / 關盤 / 結算時自動更新 ----
+  const initial = {{ {"round": round.id if round else None, "status": round.status if round else None, "epoch": epoch, "adj": adj, "team": user.team} | tojson }};
+  setInterval(async () => {
+    if (window.pkLive) return;
+    try {
+      const r = await fetch(location.pathname + '/state', {cache: 'no-store'});
+      if (!r.ok) return;
+      const s = await r.json();
+      if (['round', 'status', 'epoch', 'adj', 'team'].some(k => s[k] !== initial[k])) location.replace(location.pathname);
+    } catch (e) {}
+  }, 4000);
+})();
+</script>
+{% endblock %}
