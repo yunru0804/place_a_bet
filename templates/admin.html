@@ -45,9 +45,9 @@
           </label>
         </div>
         <p class="muted small">{{ GAME_INFO['tug'][1] }}</p>
-        <p class="muted small">團體賽不開放下注，開盤後直接按「開始拔河」。每一場的勝隊每人自動 +{{ team_prize }} 點。準決賽兩場＋決賽＝開三次團體賽。</p>
+        <p class="muted small">團體賽不開放下注，建立後直接按「開始拔河」。不計時，拉到底為止（卡住可按作廢）。每一場的勝隊每人自動 +{{ team_prize }} 點，輸的不扣點。準決賽兩場＋決賽＝開三次團體賽。</p>
       </div>
-      <button type="submit" class="primary">開盤</button>
+      <button type="submit" class="primary" id="newround-btn">開盤</button>
     </form>
   {% else %}
     {% set labels = {'voting': '🗳️ 投票中', 'open': '開盤中', 'locked': ('🪢 準備開賽' if round.team_a else '已關盤'), 'playing': '⚡ 比賽中'} %}
@@ -62,7 +62,7 @@
       {% set ws_query = '' %}{% set my_side = None %}
       {% include "_pk_arena.html" %}
       {% if round.status == 'playing' and not game_alive %}
-        <p class="flash-inline">⚠️ 比賽連線已中斷（可能是伺服器重啟），請按「作廢」退還下注。</p>
+        <p class="flash-inline">⚠️ 比賽連線已中斷（可能是伺服器重啟），請按「作廢」{{ '後重新開一場' if round.team_a else '退還下注' }}。</p>
       {% endif %}
     {% endif %}
 
@@ -92,7 +92,7 @@
         </form>
       {% elif round.status == 'locked' and round.kind == 'pk' %}
         <form method="post" action="/admin/rounds/{{ round.id }}/start"
-              onsubmit="return confirm('{{ '開始拔河？倒數 3 秒後開始，勝隊每人自動 +' ~ team_prize ~ ' 點。' if round.team_a else '開始 PK？倒數 3 秒後開始，結束後自動結算。' }}')">
+              onsubmit="return confirm('{{ '開始拔河？倒數 3 秒後開始，拉到底為止，勝隊每人自動 +' ~ team_prize ~ ' 點。' if round.team_a else '開始 PK？倒數 3 秒後開始，結束後自動結算。' }}')">
           <button type="submit" class="primary">{{ '🪢 開始拔河' if round.team_a else '⚡ 開始 PK' }}</button>
         </form>
         {% if not round.team_a %}
@@ -116,7 +116,7 @@
         </form>
       {% endif %}
       <form method="post" action="/admin/rounds/{{ round.id }}/void"
-            onsubmit="return confirm('確定作廢這一輪？所有下注會全額退還。')">
+            onsubmit="return confirm('{{ '確定作廢這一場？不會發任何點數。' if round.team_a else '確定作廢這一輪？所有下注會全額退還。' }}')">
         <button type="submit" class="danger">作廢</button>
       </form>
     </div>
@@ -258,6 +258,7 @@
       <tr>
         <td>{{ r.id }}</td><td>{{ r.title }}</td>
         <td>{% if r.status == 'void' %}<span class="muted">作廢</span>
+            {% elif r.team_a %}🏆 {{ r.option_a if r.result == 'A' else r.option_b }}
             {% else %}{{ r.result }}（{{ r.option_a if r.result == 'A' else r.option_b }}）{% endif %}</td>
         <td class="num">{{ r.total_a }} / {{ r.total_b }}</td>
       </tr>
@@ -294,6 +295,7 @@
       gs.disabled = !pk;                                        // 只送出目前這種盤的遊戲欄位
       document.getElementById('team-game').disabled = !team;
       f.title.required = f.option_a.required = f.option_b.required = kind === 'normal';
+      document.getElementById('newround-btn').textContent = team ? '建立團體賽' : '開盤';
       document.getElementById('game-desc').textContent = gs.selectedOptions[0].dataset.desc;
     };
     nr.querySelectorAll('input[name=kind]').forEach(r => r.addEventListener('change', sync));

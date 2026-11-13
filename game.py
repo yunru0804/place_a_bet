@@ -17,6 +17,7 @@ import asyncio
 import json
 import random
 from collections import deque
+from fractions import Fraction
 
 import db
 
@@ -562,12 +563,12 @@ class FlashGame(BaseGame):
 # ============================================================
 class TugGame(BaseGame):
     """團體拔河：兩隊全員一起點，繩結位置 pos 從 0 開始，A 隊往 -100 拉、B 隊往 +100 拉，
-    先到 ±100 的隊伍贏；LIMIT 秒內沒人過線就看 pos 偏向哪邊（剛好 0 → 平手作廢）。
+    先到 ±100 的隊伍贏。不計時，一定要拉到底才結束（卡住的話主持人可以作廢）。
     每一下的拉力 = PULL / 隊伍人數，所以比的是「人均點擊速度」，人數不同也公平。
+    例：4 人隊每人每秒比對手多點 1 下 → 繩結每秒移動 2，約 50 秒拉到底。
     每人每秒最多計 MAX_PER_SEC 下。結束時公布兩隊 MVP（點最多下的隊員）。"""
     key = "tug"
-    LIMIT = 30.0
-    PULL = 6.0
+    PULL = 2.0
     MAX_PER_SEC = 20
 
     def __init__(self, rnd, hub):
@@ -577,7 +578,7 @@ class TugGame(BaseGame):
         self.sides = {m["id"]: side for side, ms in members.items() for m in ms}
         self.names = {m["id"]: m["name"] for ms in members.values() for m in ms}
         self.size = {side: max(1, len(ms)) for side, ms in members.items()}
-        self.pos = 0.0
+        self.pos = Fraction(0)      # 用精確分數：2/3 這種拉力用浮點數累加會停在 99.99999 永遠到不了 100
         self.taps = {"A": 0, "B": 0}
         self.per_user: dict[int, int] = {}
         self.recent: dict[int, deque] = {}
@@ -591,7 +592,7 @@ class TugGame(BaseGame):
         return out
 
     def public(self):
-        d = {"pos": round(self.pos, 1), "taps": self.taps, "size": self.size}
+        d = {"pos": round(float(self.pos), 1), "taps": self.taps, "size": self.size}
         if self.phase == "done":
             d["mvp"] = self.mvp()
         return d
@@ -608,24 +609,23 @@ class TugGame(BaseGame):
         recent.append(now)
         self.per_user[uid] = self.per_user.get(uid, 0) + 1
         self.taps[side] += 1
-        pull = self.PULL / self.size[side]
-        self.pos = max(-100.0, min(100.0, self.pos + (-pull if side == "A" else pull)))
+        pull = Fraction(self.PULL) / self.size[side]
+        self.pos = max(Fraction(-100), min(Fraction(100), self.pos + (-pull if side == "A" else pull)))
         self.dirty = True
 
     async def run(self):
         await self.countdown()
-        await self.set_phase("play", self.LIMIT)
-        while self.now() < self.phase_end and abs(self.pos) < 100:
+        await self.set_phase("play")              # 不給 ends_in：不計時、不顯示倒數
+        while abs(self.pos) < 100:
             await asyncio.sleep(0.1)
             if self.dirty:
                 await self.push()
         await self.set_phase("done")
 
     def outcome(self):
-        w = "A" if self.pos < 0 else "B" if self.pos > 0 else None
+        w = "A" if self.pos <= -100 else "B" if self.pos >= 100 else None
         a, b = self.taps["A"], self.taps["B"]
-        how = "拉過線！" if abs(self.pos) >= 100 else "時間到，看繩結位置"
-        return w, a, b, f"{how}（{a} 下 : {b} 下）"
+        return w, a, b, f"拉過線！（{a} 下 : {b} 下）"
 
 
 GAMES = {g.key: g for g in (TapGame, ReactionGame, StopwatchGame, MathGame, MemoryGame, FlashGame, TugGame)}

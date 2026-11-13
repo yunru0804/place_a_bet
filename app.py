@@ -279,7 +279,7 @@ def _admin_action(request: Request, fn, *args, ok: str):
 def admin_create_round(request: Request, title: str = Form(""), kind: str = Form("normal"),
                        option_a: str = Form(""), option_b: str = Form(""), game: str = Form(""),
                        team_a: str = Form(""), team_b: str = Form("")):
-    ok = {"pk": "PK 盤已開始投票。", "team": "團體賽已開盤，開放下注！"}.get(kind, "已開盤。")
+    ok = {"pk": "PK 盤已開始投票。", "team": "團體賽已建立，準備好就按「開始拔河」。"}.get(kind, "已開盤。")
     return _admin_action(request, db.create_round, title, option_a, option_b, kind,
                          game or None, team_a or None, team_b or None, ok=ok)
 
@@ -304,7 +304,7 @@ async def admin_start_pk(request: Request, round_id: int):
     except db.BetError as e:
         return redirect("/admin", str(e), error=True)
     await hub.start(rnd)
-    return redirect("/admin", "PK 開始！")
+    return redirect("/admin", "拔河開始！" if rnd["game"] in db.TEAM_GAMES else "PK 開始！")
 
 
 @app.post("/admin/rounds/{round_id}/lock")
@@ -330,7 +330,9 @@ async def admin_void(request: Request, round_id: int):
     except db.BetError as e:
         return redirect("/admin", str(e), error=True)
     await hub.stop(round_id)
-    return redirect("/admin", "已作廢，所有下注退還。")
+    with db.read() as conn:
+        rnd = db.get_round(conn, round_id)
+    return redirect("/admin", "已作廢這場團體賽。" if rnd and rnd["team_a"] else "已作廢，所有下注退還。")
 
 
 # ======================= 即時連線（PK 觀戰 / 連打）=======================

@@ -1,16 +1,16 @@
 {# PK 擂台（所有手機小遊戲共用）。需要：round, pk_a, pk_b, my_side（'A'/'B'/None）, ws_query（玩家 token；管理員為空字串） #}
-<div class="arena game-{{ round.game }}" id="arena"
+<div class="arena game-{{ round.game }}{{ ' is-team' if round.team_a else '' }}" id="arena"
      data-round="{{ round.id }}" data-side="{{ my_side or '' }}" data-q="{{ ws_query }}" data-game="{{ round.game }}"
      data-name-a="{{ pk_a.name if pk_a else round.option_a }}" data-name-b="{{ pk_b.name if pk_b else round.option_b }}">
   <div class="arena-head">
-    <span class="arena-label" id="pk-label">{{ '⚡ PK 進行中' if round.status == 'playing' else '等待主持人開始 PK…' }}</span>
+    <span class="arena-label" id="pk-label">{{ '⚡ 比賽中' if round.status == 'playing' else ('等待主持人開始拔河…' if round.team_a else '等待主持人開始 PK…') }}</span>
     <span class="arena-timer" id="pk-timer"></span>
   </div>
 
   {% for s, p, name in [('A', pk_a, round.option_a), ('B', pk_b, round.option_b)] %}
     <div class="lane {{ 'team-' ~ p.team if p and p.team else '' }}{{ ' me' if my_side == s else '' }}" id="panel-{{ s }}">
       <div class="lane-top">
-        <span class="side side-{{ s|lower }}">{{ s }}</span>
+        {% if round.team_a %}<span class="team-dot"></span>{% else %}<span class="side side-{{ s|lower }}">{{ s }}</span>{% endif %}
         <b class="lane-name">{{ name }}</b>
         {% if my_side == s %}<em class="you">你</em>{% endif %}
         <span class="lane-score" id="big-{{ s }}">–</span>
