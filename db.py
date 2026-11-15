@@ -27,22 +27,17 @@ TEAM_MATCH_PRIZE = 500      # 團體賽每一場的勝隊，每位成員自動 +
 # 順序即顯示順序
 TEAMS = {"red": "紅隊", "yellow": "黃隊", "green": "綠隊", "blue": "藍隊"}
 
-# PK 小遊戲：key → (名稱, 玩法說明)。live = 現場比，由主持人判定；其餘在手機上玩、自動判定（見 game.py）
-PK_GAMES = {
-    "tap":       ("⚡ 連打大賽", "10 秒內誰點得多誰贏！"),
-    "reaction":  ("🚦 反應力對決", "畫面變綠時搶先按！太早按算偷跑，先拿 2 勝"),
-    "stopwatch": ("⏱ 停錶挑戰", "3 回合：在 5 / 10 / 20 秒按停（碼表 2 秒後消失），累計差距小的贏"),
-    "math":      ("🧮 搶答心算", "共 10 題，同一題誰先答對得 1 分，答錯這題就不能再答，分數高的贏"),
-    "memory":    ("🧠 記憶挑戰", "共 10 回合，記住色塊閃爍順序再照按，按錯或超時加罰秒，累計秒數少的贏"),
-    "flash":     ("🎭 閃現辨識", "窗簾打開瞬間有 emoji 飛過，從很像的選項中選出剛剛那個！共 10 回合，越來越快、窗簾開口越來越小，答對多的贏（同分比作答速度）"),
-    "live":      ("🎤 現場對決", "兩人到現場比賽，由主持人公布勝負"),
-}
+# 遊戲名稱與說明在 pk/games/ 各檔；延遲轉接，避免啟動時跟遊戲模組互抓。
+def _catalog(name):
+    from pk.registry import GAME_INFO, PK_GAMES, TEAM_GAMES
+    return {"PK_GAMES": PK_GAMES, "TEAM_GAMES": TEAM_GAMES, "GAME_INFO": GAME_INFO}[name]
 
-# 團體賽：兩隊全員一起在手機上玩。資料庫裡沿用 kind='pk'，以 game 區分，隊伍記在 team_a / team_b
-TEAM_GAMES = {
-    "tug": ("🪢 拔河", "兩隊全員一起狂點把繩子拉向自己！不計時，先把繩結拉過線的隊伍贏。依隊伍人數平均計算，人少不吃虧。勝隊每人 +500 點，輸的不扣點！"),
-}
-GAME_INFO = {**PK_GAMES, **TEAM_GAMES}
+
+def __getattr__(name):
+    if name in ("PK_GAMES", "TEAM_GAMES", "GAME_INFO"):
+        return _catalog(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -347,7 +342,7 @@ def place_bet(user_id: int, choice: str | None, amount: int) -> str:
         if rnd["kind"] == "pk":
             own = my_side(conn, rnd, user_id)
             if own and choice != own:
-                raise BetError("你的隊伍正在比賽，只能押自己的隊。" if rnd["game"] in TEAM_GAMES
+                raise BetError("你的隊伍正在比賽，只能押自己的隊。" if rnd["game"] in _catalog("TEAM_GAMES")
                                else "你是 PK 選手，只能押自己。")
 
         user = get_user(conn, user_id)
@@ -379,7 +374,7 @@ def my_side(conn, rnd, user_id: int | None) -> str | None:
     """這位玩家在這一輪是 A 方、B 方，還是旁觀（None）。"""
     if rnd is None or rnd["kind"] != "pk" or user_id is None:
         return None
-    if rnd["game"] in TEAM_GAMES:
+    if rnd["game"] in _catalog("TEAM_GAMES"):
         row = conn.execute("SELECT team FROM users WHERE id = ?", (user_id,)).fetchone()
         team = row["team"] if row else None
         return {rnd["team_a"]: "A", rnd["team_b"]: "B"}.get(team) if team else None
@@ -395,9 +390,10 @@ def team_members(conn, team: str):
 def create_round(title: str, option_a: str, option_b: str, kind: str = "normal",
                  game: str | None = None, team_a: str | None = None, team_b: str | None = None) -> None:
     title, option_a, option_b = title.strip(), option_a.strip(), option_b.strip()
+    pk_games, team_games = _catalog("PK_GAMES"), _catalog("TEAM_GAMES")
     if kind == "team":
-        game = game or "tug"
-        if game not in TEAM_GAMES:
+        game = game or next(iter(team_games), None)
+        if game not in team_games:
             raise BetError("請選擇團體賽遊戲。")
         if team_a not in TEAMS or team_b not in TEAMS or team_a == team_b:
             raise BetError("請選兩支不同的隊伍。")
@@ -406,13 +402,13 @@ def create_round(title: str, option_a: str, option_b: str, kind: str = "normal",
                 if not team_members(conn, t):
                     raise BetError(f"{TEAMS[t]}沒有任何隊員。")
         option_a, option_b = TEAMS[team_a], TEAMS[team_b]
-        title = f"{TEAM_GAMES[game][0]}：{option_a} vs {option_b}"
+        title = f"{team_games[game][0]}：{option_a} vs {option_b}"
         kind, status = "pk", "locked"   # 團體賽不投票、不下注，直接等主持人開始
     elif kind == "pk":
         team_a = team_b = None
-        if game not in PK_GAMES:
+        if game not in pk_games:
             raise BetError("請選擇 PK 遊戲。")
-        title = PK_GAMES[game][0]      # 題目就是遊戲名稱
+        title = pk_games[game][0]      # 題目就是遊戲名稱
         option_a = option_b = ""       # 投票結束後才會填入兩位選手的名字
         status = "voting"
     elif kind == "normal":
@@ -494,10 +490,11 @@ def finish_pk(round_id: int, score_a: int, score_b: int, result: str | None) -> 
                                  settled_at = datetime('now', 'localtime') WHERE id = ?""",
             ("settled" if result else "void", result, score_a, score_b, round_id),
         )
-        if result and rnd["game"] in TEAM_GAMES:
+        team_games = _catalog("TEAM_GAMES")
+        if result and rnd["game"] in team_games:
             team = rnd["team_a"] if result == "A" else rnd["team_b"]
             members = team_members(conn, team)
-            reason = f"{TEAM_GAMES[rnd['game']][0]}勝利（{TEAMS[team]}）"
+            reason = f"{team_games[rnd['game']][0]}勝利（{TEAMS[team]}）"
             batch = secrets.token_hex(6)
             conn.executemany(
                 "INSERT INTO adjustments (user_id, delta, reason, target, batch) VALUES (?, ?, ?, ?, ?)",
@@ -523,7 +520,7 @@ def lock_round(round_id: int) -> None:
 def reopen_round(round_id: int) -> None:
     with read() as conn:
         rnd = get_round(conn, round_id)
-    if rnd is not None and rnd["game"] in TEAM_GAMES:
+    if rnd is not None and rnd["game"] in _catalog("TEAM_GAMES"):
         raise BetError("團體賽不開放下注。")
     _transition(round_id, ("locked",),
                 "UPDATE rounds SET status = 'open', closed_at = NULL WHERE id = ?",

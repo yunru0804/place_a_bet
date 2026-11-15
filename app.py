@@ -11,7 +11,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 import db
-from game import hub
+from pk.hub import hub
+from pk.registry import GAME_INFO, PK_GAMES, TEAM_GAMES, client_js
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -57,8 +58,10 @@ def inline_css() -> Markup:
 
 templates.env.globals["inline_css"] = inline_css
 templates.env.globals["TEAMS"] = db.TEAMS
-templates.env.globals["PK_GAMES"] = db.PK_GAMES
-templates.env.globals["GAME_INFO"] = db.GAME_INFO
+templates.env.globals["PK_GAMES"] = PK_GAMES
+templates.env.globals["TEAM_GAMES"] = TEAM_GAMES
+templates.env.globals["GAME_INFO"] = GAME_INFO
+templates.env.globals["GAME_CLIENT_JS"] = Markup(client_js())
 
 
 def redirect(url: str, msg: str | None = None, error: bool = False) -> RedirectResponse:
@@ -106,7 +109,7 @@ def _pk_ctx(conn, rnd, user_id: int | None) -> dict:
     """PK 盤需要的資料：投票候選人、我投給誰、兩位選手、我是哪一邊。"""
     if rnd is None or rnd["kind"] != "pk":
         return {"candidates": [], "my_vote": None, "pk_a": None, "pk_b": None, "my_side": None, "is_team": False}
-    if rnd["game"] in db.TEAM_GAMES:      # 團體賽：A / B 是隊伍
+    if rnd["game"] in TEAM_GAMES:      # 團體賽：A / B 是隊伍
         return {
             "candidates": [], "my_vote": None, "is_team": True,
             "pk_a": {"name": db.TEAMS[rnd["team_a"]], "team": rnd["team_a"]},
@@ -279,7 +282,7 @@ def _admin_action(request: Request, fn, *args, ok: str):
 def admin_create_round(request: Request, title: str = Form(""), kind: str = Form("normal"),
                        option_a: str = Form(""), option_b: str = Form(""), game: str = Form(""),
                        team_a: str = Form(""), team_b: str = Form("")):
-    ok = {"pk": "PK 盤已開始投票。", "team": "團體賽已建立，準備好就按「開始拔河」。"}.get(kind, "已開盤。")
+    ok = {"pk": "PK 盤已開始投票。", "team": "團體賽已建立，準備好就按「開始」。"}.get(kind, "已開盤。")
     return _admin_action(request, db.create_round, title, option_a, option_b, kind,
                          game or None, team_a or None, team_b or None, ok=ok)
 
@@ -304,7 +307,7 @@ async def admin_start_pk(request: Request, round_id: int):
     except db.BetError as e:
         return redirect("/admin", str(e), error=True)
     await hub.start(rnd)
-    return redirect("/admin", "拔河開始！" if rnd["game"] in db.TEAM_GAMES else "PK 開始！")
+    return redirect("/admin", "已開始！")
 
 
 @app.post("/admin/rounds/{round_id}/lock")

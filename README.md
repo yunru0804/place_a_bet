@@ -3,7 +3,7 @@
 給十幾個人的聚會用的下注與小遊戲網站。架在自己電腦上，大家用手機打開專屬連結就能玩，畫面是賭場風格。
 
 - 每人 1000 點，可以押一般盤，也能在 PK 小遊戲裡押誰會贏
-- 分成紅、黃、綠、藍四隊，有團體賽（拔河），勝隊自動加分
+- 分成紅、黃、綠、藍四隊，有團體賽（拔河、跳繩、開香檳），勝隊自動加分
 - 主持人在後台開盤、結算、發點數、看排行榜
 - 不用帳號密碼：每位玩家一條專屬連結
 - 一個 SQLite 檔案就是全部資料，備份就是複製一個檔
@@ -78,7 +78,13 @@ ngrok http 8000 --url=<你在 ngrok 後台領的固定網域>
 
 自動判定的遊戲如果平手，該輪作廢退還。
 
-**🪢 團體賽（拔河）**：選兩隊 → 主持人按開始 → 兩隊全員一起狂點把繩子拉過來 → 勝隊每位成員自動加 500 點。這個盤不開放下注，輸的隊伍也不扣點。
+**🪢 團體賽**：選遊戲與兩隊 → 主持人按開始 → 兩隊全員一起在手機上玩 → 勝隊每位成員自動加 500 點。不開放下注，輸的隊伍不扣點。
+
+| 遊戲 | 玩法 |
+|---|---|
+| 🪢 拔河 | 全員狂點把繩結拉向自己，先拉過線的贏；依人數平均，人少不吃虧 |
+| 🤸 跳繩 | 跟著繩拍按「跳」；連續跳過連跳加成，全隊同一拍都跳過再加齊跳分；時間到比總分 |
+| 🍾 開香檳 | 全員搖手機把瓶子搖到泡沫噴出，先爆開的贏 |
 
 - 不計時，一定要有一隊把繩結拉過線才結束。卡住的話，主持人可以按作廢。
 - 每一下的拉力等於 2 除以隊伍人數，比的是人均速度，所以隊伍人數不同也公平。舉例：4 人的隊伍，每人每秒比對手多點 1 下，大約 50 秒會拉到底。
@@ -107,11 +113,16 @@ ngrok http 8000 --url=<你在 ngrok 後台領的固定網域>
 ```
 app.py              路由：玩家頁 /p/<token>、後台 /admin、WebSocket /ws
 db.py               資料表、遷移、所有點數與下注規則
-game.py             PK 小遊戲引擎（一個遊戲一個類別）＋即時同步 Hub
+game.py             相容入口（轉接到 pk.hub）
+pk/
+  base.py           BaseGame / TeamGame / 判定工具
+  hub.py            WebSocket 廣播與一場進行中的遊戲
+  registry.py       自動掃描 pk/games/
+  games/            一款遊戲一個檔（名稱、規則、前端 JS 都在這裡）
 templates/
   player.html       玩家頁
   admin.html        後台
-  _pk_arena.html    PK／團體賽擂台（所有遊戲共用，前端渲染邏輯也在這裡）
+  _pk_arena.html    PK／團體賽擂台殼（共用連線與倒數；各遊戲畫面由 CLIENT_JS 注入）
   _live.html        後台即時下注／投票區塊
   _board.html       排行榜區塊
 static/style.css    樣式（會內嵌進每個頁面，見下方說明）
@@ -133,15 +144,20 @@ instance/           執行時資料：bets.db、admin_password.txt、secret_key.
 |---|---|
 | 初始點數、下注上下限、主賽／團體賽獎金 | `db.py` 開頭的 `INITIAL_POINTS`、`MIN_BET`、`MAX_BET`、`MAIN_MATCH_PRIZE`、`TEAM_MATCH_PRIZE` |
 | 隊伍名稱 | `db.py` 的 `TEAMS` |
-| 遊戲名稱與說明 | `db.py` 的 `PK_GAMES`、`TEAM_GAMES` |
-| 各遊戲的回合數、時間、難度 | `game.py` 各遊戲類別開頭的常數，例如 `FlashGame.GAP`、`TugGame.PULL` |
-| 閃現辨識的 emoji 組 | `game.py` 的 `EMOJI_GROUPS` |
+| 遊戲名稱、說明、難度、畫面 | `pk/games/<遊戲>.py`（只改這一個檔） |
+| 各遊戲的回合數、時間、難度 | 該遊戲類別開頭的常數，例如 `FlashGame.GAP`、`TugGame.PULL` |
+| 閃現辨識的 emoji 組 | `pk/games/flash.py` 的 `EMOJI_GROUPS` |
 
 ### 新增一個 PK 小遊戲
 
-1. 在 `game.py` 繼承 `BaseGame`，實作 `run()`、`handle()`、`public()`、`outcome()`，再加進 `GAMES`。
-2. 在 `db.py` 的 `PK_GAMES` 加上名稱和說明，後台的下拉選單會自動出現。
-3. 在 `templates/_pk_arena.html` 加一個 `G.<key>` 渲染器，實作 `label`、`panels`、`render`。
+在 `pk/games/` 新增一個 `.py`（會自動被掃進去），繼承 `BaseGame`（團體賽用 `TeamGame`），設定：
+
+- `key` / `title` / `description` / `order`
+- `team = True` 若是團體賽
+- `run()`、`handle()`、`public()`、`outcome()`
+- `CLIENT_JS`：寫入 `G.<key>`，實作 `label`、`panels`、`render`（選填 `tick`）
+
+不必改 `db.py` 或 `_pk_arena.html`。現場對決這種沒有手機引擎的，設 `engine = False`（見 `live.py`）。
 
 ---
 

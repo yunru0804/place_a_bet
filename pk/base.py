@@ -1,0 +1,114 @@
+"""PK 遊戲共用合約與工具。"""
+
+import asyncio
+
+COUNTDOWN = 3.0
+
+
+class BaseGame:
+    """一種手機小遊戲。子類別放在 pk/games/，會被自動掃描。
+
+    必填 class 屬性：key、title、description。
+    選填：team（團體賽）、engine（False = 只出現在選單、沒有即時引擎，如現場對決）、
+         order（選單順序）、CLIENT_JS（擂台前端，寫入 G.<key>）。
+    必實作：run()、handle()、public()、outcome()（engine=False 的除外）。
+    """
+
+    key = ""
+    title = ""
+    description = ""
+    team = False
+    engine = True
+    order = 50
+    CLIENT_JS = ""
+
+    def __init__(self, rnd, hub):
+        self.hub = hub
+        self.round_id = rnd["id"]
+        self.sides = {rnd["player_a"]: "A", rnd["player_b"]: "B"}
+        self.uid = None
+        self.phase = "countdown"
+        self.phase_end: float | None = None
+        self.dirty = False
+        self.changed = asyncio.Event()
+
+    @staticmethod
+    def now() -> float:
+        return asyncio.get_running_loop().time()
+
+    def message(self) -> dict:
+        now = self.now()
+        msg = {
+            "type": "state", "round": self.round_id, "game": self.key, "phase": self.phase,
+            "ends_in": None if self.phase_end is None else max(0, int((self.phase_end - now) * 1000)),
+        }
+        msg.update(self.public())
+        return msg
+
+    async def push(self) -> None:
+        self.dirty = False
+        await self.hub.broadcast(self.message())
+
+    async def set_phase(self, phase: str, duration: float | None = None) -> None:
+        self.phase = phase
+        self.phase_end = None if duration is None else self.now() + duration
+        await self.push()
+
+    async def countdown(self) -> None:
+        await self.set_phase("countdown", COUNTDOWN)
+        await asyncio.sleep(COUNTDOWN)
+
+    def mark(self) -> None:
+        """handle() 改了狀態後呼叫：讓 run() 立刻推送並重新檢查條件。"""
+        self.dirty = True
+        self.changed.set()
+
+    async def wait(self, cond, timeout: float) -> bool:
+        """等到 cond() 成立或逾時；期間有變化就推送。"""
+        end = self.now() + timeout
+        while True:
+            self.changed.clear()
+            if self.dirty:
+                await self.push()
+            if cond():
+                return True
+            remaining = end - self.now()
+            if remaining <= 0:
+                return False
+            try:
+                await asyncio.wait_for(self.changed.wait(), min(remaining, 0.5))
+            except asyncio.TimeoutError:
+                pass
+
+    def public(self) -> dict:
+        return {}
+
+    def handle(self, side: str, data: dict) -> None:
+        pass
+
+    async def run(self) -> None:
+        raise NotImplementedError
+
+    def outcome(self) -> tuple[str | None, int, int, str]:
+        raise NotImplementedError
+
+
+class TeamGame(BaseGame):
+    """團體賽：sides 是整隊隊員，不只有兩名選手。"""
+
+    team = True
+
+    def __init__(self, rnd, hub):
+        super().__init__(rnd, hub)
+        import db
+        with db.read() as conn:
+            members = {"A": db.team_members(conn, rnd["team_a"]), "B": db.team_members(conn, rnd["team_b"])}
+        self.sides = {m["id"]: side for side, ms in members.items() for m in ms}
+        self.names = {m["id"]: m["name"] for ms in members.values() for m in ms}
+        self.size = {side: max(1, len(ms)) for side, ms in members.items()}
+
+
+def winner(a, b, higher_wins=True):
+    if a == b:
+        return None
+    return ("A" if a > b else "B") if higher_wins else ("A" if a < b else "B")

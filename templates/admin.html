@@ -35,7 +35,12 @@
         <p class="muted small">開盤後先讓大家投票，你關閉投票時會選出得票最高的 2 人。</p>
       </div>
       <div id="team-fields" hidden>
-        <input type="hidden" name="game" value="tug" disabled id="team-game">
+        <label class="field">團體賽遊戲
+          <select name="game" id="team-game" disabled>
+            {% for key, (label, desc) in TEAM_GAMES.items() %}<option value="{{ key }}" data-desc="{{ desc }}">{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <p class="muted small" id="team-game-desc">{% if TEAM_GAMES %}{{ TEAM_GAMES.values()|list|first|last }}{% endif %}</p>
         <div class="two">
           <label class="field">A 隊
             <select name="team_a">{% for key, label in TEAMS.items() %}<option value="{{ key }}" {% if loop.index == 1 %}selected{% endif %}>{{ label }}（{{ team_counts.get(key, 0) }} 人）</option>{% endfor %}</select>
@@ -44,8 +49,7 @@
             <select name="team_b">{% for key, label in TEAMS.items() %}<option value="{{ key }}" {% if loop.index == 2 %}selected{% endif %}>{{ label }}（{{ team_counts.get(key, 0) }} 人）</option>{% endfor %}</select>
           </label>
         </div>
-        <p class="muted small">{{ GAME_INFO['tug'][1] }}</p>
-        <p class="muted small">團體賽不開放下注，建立後直接按「開始拔河」。不計時，拉到底為止（卡住可按作廢）。每一場的勝隊每人自動 +{{ team_prize }} 點，輸的不扣點。準決賽兩場＋決賽＝開三次團體賽。</p>
+        <p class="muted small">團體賽不開放下注，建立後直接按「開始」。每一場的勝隊每人自動 +{{ team_prize }} 點，輸的不扣點。卡住可按作廢。</p>
       </div>
       <button type="submit" class="primary" id="newround-btn">開盤</button>
     </form>
@@ -92,8 +96,8 @@
         </form>
       {% elif round.status == 'locked' and round.kind == 'pk' %}
         <form method="post" action="/admin/rounds/{{ round.id }}/start"
-              onsubmit="return confirm('{{ '開始拔河？倒數 3 秒後開始，拉到底為止，勝隊每人自動 +' ~ team_prize ~ ' 點。' if round.team_a else '開始 PK？倒數 3 秒後開始，結束後自動結算。' }}')">
-          <button type="submit" class="primary">{{ '🪢 開始拔河' if round.team_a else '⚡ 開始 PK' }}</button>
+              onsubmit="return confirm('{{ '確定開始？倒數 3 秒後開賽，勝隊每人自動 +' ~ team_prize ~ ' 點。' if round.team_a else '確定開始？倒數 3 秒後開賽，結束後自動結算。' }}')">
+          <button type="submit" class="primary">開始</button>
         </form>
         {% if not round.team_a %}
         <form method="post" action="/admin/rounds/{{ round.id }}/reopen">
@@ -293,13 +297,17 @@
       document.getElementById('pk-fields').hidden = !pk;
       document.getElementById('team-fields').hidden = !team;
       gs.disabled = !pk;                                        // 只送出目前這種盤的遊戲欄位
-      document.getElementById('team-game').disabled = !team;
+      const tg = document.getElementById('team-game');
+      tg.disabled = !team;
       f.title.required = f.option_a.required = f.option_b.required = kind === 'normal';
       document.getElementById('newround-btn').textContent = team ? '建立團體賽' : '開盤';
-      document.getElementById('game-desc').textContent = gs.selectedOptions[0].dataset.desc;
+      document.getElementById('game-desc').textContent = gs.selectedOptions[0]?.dataset.desc || '';
+      const td = document.getElementById('team-game-desc');
+      if (td) td.textContent = tg.selectedOptions[0]?.dataset.desc || '';
     };
     nr.querySelectorAll('input[name=kind]').forEach(r => r.addEventListener('change', sync));
     gs.addEventListener('change', sync);
+    document.getElementById('team-game').addEventListener('change', sync);
     sync();
   }
   document.querySelectorAll('.copy').forEach(b => b.addEventListener('click', async () => {

@@ -23,3 +23,5 @@ instance/
 
 # 記錄檔
 *.log
+
+graphify-out/
