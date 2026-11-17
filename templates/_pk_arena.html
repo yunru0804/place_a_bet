@@ -116,6 +116,8 @@
     };
     ws.onclose = () => { if (!ended) setTimeout(connect, 1000); };
   };
+  // 比賽開始前就先畫出來的遊戲（例如開香檳要先按「開啟搖晃」取得 iPhone 動作權限）
+  if (G[GAME] && G[GAME].prepare) G[GAME].prepare();
   connect();
   stage.addEventListener('contextmenu', e => e.preventDefault());
 })();

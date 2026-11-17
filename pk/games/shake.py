@@ -21,6 +21,7 @@ class ShakeGame(TeamGame):
     MAX_PER_SEC = 8
     CLIENT_JS = r"""
   let shakeOn = false, lastShake = 0, prevG = null, shakeDenied = false;
+  const SHAKE_IDLE = {phase: 'ready', heat: {A: 0, B: 0}};   // 開賽前先畫畫面用
   const needsMotionPerm = !!(typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission);
   const httpBlocked = needsMotionPerm && !window.isSecureContext;
   const shakeOnce = () => {
@@ -48,18 +49,20 @@ class ShakeGame(TeamGame):
     try {
       if (needsMotionPerm) {
         const p = await DeviceMotionEvent.requestPermission();
-        if (p !== 'granted') { shakeDenied = true; G.shake.render(st); return; }
+        if (p !== 'granted') { shakeDenied = true; G.shake.render(st || SHAKE_IDLE); return; }
       }
-    } catch (err) { shakeDenied = true; G.shake.render(st); return; }
+    } catch (err) { shakeDenied = true; G.shake.render(st || SHAKE_IDLE); return; }
     window.addEventListener('devicemotion', onMotion);
     shakeOn = true;
-    G.shake.render(st);
+    G.shake.render(st || SHAKE_IDLE);
   };
   if (side && !needsMotionPerm) {
     window.addEventListener('devicemotion', onMotion);
     shakeOn = true;
   }
   G.shake = {
+    // 開賽前就顯示「開啟搖晃」：iPhone 要先按一下、選允許，倒數那 3 秒才來得及
+    prepare() { if (side) G.shake.render(SHAKE_IDLE); },
     label: s => {
       if (s.phase !== 'play') return s.phase === 'done' ? '砰！！' : '準備…';
       const h = Math.max(s.heat.A, s.heat.B);
@@ -93,11 +96,17 @@ class ShakeGame(TeamGame):
           '<div class="jr-hint" id="shakehint"></div>' +
           (side ? `<button type="button" class="tap-btn jr-btn ${$('panel-' + side).className.match(/team-\w+/)?.[0] || ''}" id="shakebtn">開啟搖晃</button>` : '');
         if (side) {
-          $('shakebtn').addEventListener('pointerdown', e => {
-            e.preventDefault();
-            if (!shakeOn && !httpBlocked) armShake();
+          const sb = $('shakebtn');
+          // iOS Safari 只把「click / touchend」當成使用者手勢；在 pointerdown 裡呼叫
+          // DeviceMotionEvent.requestPermission() 不會跳出權限視窗，搖晃就永遠收不到。
+          sb.addEventListener('click', () => {
+            if (!shakeOn && !httpBlocked && !shakeDenied) armShake();
+          });
+          // 比賽中按按鈕也算一次搖（不能搖的手機用狂點代替）
+          sb.addEventListener('pointerdown', e => {
             if (!st || st.phase !== 'play') return;
-            shakeOnce();
+            e.preventDefault();
+            if (shakeOn || httpBlocked || shakeDenied) shakeOnce();
           });
         }
       }
@@ -114,7 +123,10 @@ class ShakeGame(TeamGame):
       const hint = $('shakehint');
       const b = $('shakebtn');
       if (s.phase !== 'play') {
-        if (hint) hint.textContent = s.phase === 'done' ? '開瓶了！' : (httpBlocked ? 'iPhone 請狂點按鈕（http 不能搖晃）' : '先按「開啟搖晃」，等倒數');
+        if (hint) hint.textContent = s.phase === 'done' ? '開瓶了！'
+          : httpBlocked ? 'iPhone 請狂點按鈕（http 不能搖晃）'
+          : shakeDenied ? '動作權限被拒絕：比賽時請狂點按鈕，或關掉分頁重開連結再按「開啟搖晃」'
+          : shakeOn ? '已開啟搖晃！等倒數' : '先按「開啟搖晃」→ 選「允許」，等倒數';
         if (b) { b.disabled = s.phase === 'done'; b.textContent = s.phase === 'done' ? '結束' : (shakeOn || httpBlocked ? '等開始' : '開啟搖晃'); }
         return;
       }
