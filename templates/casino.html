@@ -4,6 +4,7 @@
 {% block body_class %}player casino-page{% if user.team %} team-{{ user.team }}{% endif %}{% endblock %}
 {% block content %}
 {% include "_sfx.html" %}
+{% include "_fx.html" %}
 
 <div class="cs-top">
   <a class="cs-back" href="/p/{{ user.token }}">‹ 回下注</a>
@@ -93,9 +94,10 @@
     <div class="pcard back" id="hl-card"></div>
   </div>
   <div class="hl-mult" id="hl-mult"></div>
-  <div class="cs-msg" id="hilo-msg">翻一張牌，猜下一張比較大還是比較小。<br><small>一樣大算平手 · 越難猜倍數越高 · 最高 {{ rules.hilo_cap }} 倍</small></div>
+  <div class="cs-msg" id="hilo-msg">翻一張牌，猜下一張比較大、比較小，還是一樣。<br><small>猜大小抽到一樣是幸運牌 × {{ rules.hilo_lucky }} · 猜中「一樣」× {{ rules.hilo_same }} · 最高 {{ rules.hilo_cap }} 倍</small></div>
   <div class="hl-btns" id="hl-play" hidden>
     <button type="button" class="hl-btn lo" data-guess="lo">⬇ 小<small id="hl-lo"></small></button>
+    <button type="button" class="hl-btn same" data-guess="same">🎯 一樣<small id="hl-same"></small></button>
     <button type="button" class="hl-btn hi" data-guess="hi">⬆ 大<small id="hl-hi"></small></button>
   </div>
   <button type="button" class="ghost hl-cash" id="hl-cash" hidden>收手</button>
@@ -211,23 +213,7 @@
   };
   tabs.forEach(t => t.addEventListener('click', () => { if (!busy) showTab(t.dataset.tab); }));
 
-  function confetti() {
-    if (reduceMotion) return;
-    const colors = ['#f7c948', '#e63946', '#2ec4b6', '#ffffff', '#ff8c42'];
-    const box = document.createElement('div');
-    box.className = 'confetti';
-    for (let i = 0; i < 90; i++) {
-      const s = document.createElement('i');
-      s.style.left = Math.random() * 100 + '%';
-      s.style.background = colors[i % colors.length];
-      s.style.animationDelay = Math.random() * 0.8 + 's';
-      s.style.animationDuration = 2 + Math.random() * 1.5 + 's';
-      s.style.setProperty('--drift', (Math.random() * 120 - 60) + 'px');
-      box.appendChild(s);
-    }
-    document.body.appendChild(box);
-    setTimeout(() => box.remove(), 4500);
-  }
+  const celebrate = lv => { if (window.fx) window.fx.celebrate(lv); };
 
   // ================= 拉霸 =================
   const reels = [0, 1, 2].map(i => $('reel' + i));
@@ -263,10 +249,10 @@
     if (res.line === 'three') {
       slotMsg.textContent = `${res.reels[0]} 連線！× ${res.mult}　+${net}`;
       slotMsg.className = 'cs-msg jackpot';
-      confetti(); buzz([80, 40, 80, 40, 160]); sfx('jackpot');
+      celebrate(res.mult >= 20 ? 'jackpot' : 'big'); buzz([80, 40, 80, 40, 160]); sfx('jackpot');
     } else if (net > 0) {
       slotMsg.textContent = `兩個一樣 × ${res.mult}　+${net}`;
-      slotMsg.className = 'cs-msg good'; buzz([50, 30, 50]); sfx('coin');
+      slotMsg.className = 'cs-msg good'; buzz([50, 30, 50]); sfx('coin'); celebrate('small');
     } else if (net === 0 && res.payout) {
       slotMsg.textContent = '兩個一樣，退回本金'; slotMsg.className = 'cs-msg';
     } else {
@@ -301,7 +287,7 @@
       const what = (res.outcome === 'triple' ? `豹子 ${res.dice[0]}！` : '') + `${res.total} 點　${PICK_NAME[res.size]}`;
       if (net > 0) {
         sbMsg.textContent = `${what}　你贏了 +${net}`; sbMsg.className = 'cs-msg ' + (res.pick === 'triple' ? 'jackpot' : 'good');
-        if (res.pick === 'triple') confetti();
+        celebrate(res.pick === 'triple' ? 'jackpot' : 'small');
         buzz([50, 30, 50]); sfx(res.pick === 'triple' ? 'jackpot' : 'coin');
       } else {
         sbMsg.textContent = `${what}　-${res.bet}`; sfx('lose');
@@ -331,13 +317,15 @@
     void el.offsetWidth;
     el.classList.remove('flipping');
   };
+  const gb = g => hlPlay.querySelector(`[data-guess="${g}"]`);
   const hiloOpen = s => {
     hlPlay.hidden = false; hlStart.hidden = true;
     hlCash.hidden = s.steps === 0;
     hlCash.textContent = `收手 拿 ${s.cashout}`;
     $('hl-hi').textContent = s.next_hi ? `× ${s.next_hi}` : '不可能';
     $('hl-lo').textContent = s.next_lo ? `× ${s.next_lo}` : '不可能';
-    guessBtns[0].disabled = !s.next_lo; guessBtns[1].disabled = !s.next_hi;
+    $('hl-same').textContent = `× ${s.next_same}`;
+    gb('lo').disabled = !s.next_lo; gb('hi').disabled = !s.next_hi; gb('same').disabled = false;
     hlMult.textContent = s.steps ? `連中 ${s.steps} 次　目前 × ${s.mult}` : `押 ${s.bet} 點`;
     tabs.forEach(t => t.disabled = t.dataset.tab !== 'hilo');
     amt.disabled = true;
@@ -360,7 +348,7 @@
     setBalance(res.balance);
     paint(hlPrev, null);
     await flip(hlCard, res.card);
-    hlMsg.className = 'cs-msg'; hlMsg.textContent = '下一張會比較大還是比較小？';
+    hlMsg.className = 'cs-msg'; hlMsg.textContent = '下一張會比較大、比較小，還是一樣？';
     hiloOpen(res);
   });
   guessBtns.forEach(btn => btn.addEventListener('click', async () => {
@@ -372,21 +360,26 @@
     if (res.error) { hlMsg.textContent = res.error; hlMsg.className = 'cs-msg bad'; guessBtns.forEach(b => b.disabled = false); return; }
     paint(hlPrev, res.prev);
     await flip(hlCard, res.card);
-    if (res.status === 'open' && res.tie) {
-      hlMsg.className = 'cs-msg'; hlMsg.textContent = '一樣大，平手！倍數不變，繼續猜'; sfx('blip');
+    if (res.status === 'open' && res.lucky) {
+      hlMsg.className = 'cs-msg jackpot'; hlMsg.textContent = `🍀 幸運牌！一樣大 × ${res.step}`;
+      buzz([30, 20, 30, 20, 30]); sfx('win'); celebrate('big');
+      hiloOpen(res);
+    } else if (res.status === 'open' && res.guess === 'same') {
+      hlMsg.className = 'cs-msg jackpot'; hlMsg.textContent = `🎯 猜中一樣！× ${res.step}`;
+      buzz([80, 40, 80, 40, 160]); sfx('jackpot'); celebrate('jackpot');
       hiloOpen(res);
     } else if (res.status === 'open') {
       hlMsg.className = 'cs-msg good'; hlMsg.textContent = '猜中了！繼續猜，或收手';
-      buzz([30, 20, 30]); sfx('coin');
+      buzz([30, 20, 30]); sfx('coin'); celebrate('small');
       hiloOpen(res);
     } else if (res.status === 'lose') {
       hlMsg.className = 'cs-msg'; hlMsg.textContent = `猜錯了… -${res.bet}`;
       setBalance(res.balance); showNet(-res.bet); addRecent('hilo', res.bet, 0);
       buzz(120); sfx('lose'); hiloIdle();
     } else {   // cap
-      hlMsg.className = 'cs-msg jackpot'; hlMsg.textContent = `封頂 × ${res.mult}！自動收手 +${res.payout - res.bet}`;
+      hlMsg.className = 'cs-msg jackpot'; hlMsg.textContent = `${res.lucky ? '🍀 幸運牌！' : ''}封頂 × ${res.mult}！自動收手 +${res.payout - res.bet}`;
       setBalance(res.balance); showNet(res.payout - res.bet); addRecent('hilo', res.bet, res.payout);
-      confetti(); sfx('jackpot'); hiloIdle();
+      celebrate('jackpot'); sfx('jackpot'); hiloIdle();
     }
   }));
   hlCash.addEventListener('click', async () => {
@@ -398,7 +391,7 @@
     const net = res.payout - res.bet;
     hlMsg.className = 'cs-msg good'; hlMsg.textContent = `收手！× ${res.mult}　+${net}`;
     setBalance(res.balance); showNet(net); addRecent('hilo', res.bet, res.payout);
-    buzz([50, 30, 50]); sfx('win'); hiloIdle();
+    buzz([50, 30, 50]); sfx('win'); celebrate(res.mult >= 3 ? 'big' : 'small'); hiloIdle();
   });
 
   // 重新整理時還有沒打完的牌局 → 接著玩

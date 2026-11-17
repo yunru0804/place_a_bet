@@ -8,9 +8,10 @@ class TapGame(BaseGame):
     """連打：時間內點最多下的贏。每秒最多計 MAX_PER_SEC 下。"""
     key = "tap"
     title = "⚡ 連打大賽"
-    description = "10 秒內誰點得多誰贏！"
+    description = "時間內誰點得多誰贏！"
     order = 10
     DURATION = 10.0
+    SETTING = {"attr": "DURATION", "label": "遊玩時間（秒）", "fmt": "{} 秒", "default": 10, "min": 5, "max": 60}
     MAX_PER_SEC = 25
     CLIENT_JS = r"""
   let tapLocal = 0;

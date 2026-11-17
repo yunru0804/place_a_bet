@@ -8,9 +8,10 @@ class MemoryGame(BaseGame):
     """記憶：色塊依序閃爍，兩人同時照順序按，累計秒數低的贏。"""
     key = "memory"
     title = "🧠 記憶挑戰"
-    description = "共 10 回合，記住色塊閃爍順序再照按，按錯或超時加罰秒，累計秒數少的贏"
+    description = "記住色塊閃爍順序再照按（每回合多一格），按錯或超時加罰秒，累計秒數少的贏"
     order = 50
     ROUNDS = 10
+    SETTING = {"attr": "ROUNDS", "label": "回合數", "fmt": "{} 回合", "default": 10, "min": 3, "max": 20}
     ITEM_MS = 650
     LEAD_MS = 800
     PENALTY = 3.0

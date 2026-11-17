@@ -8,9 +8,10 @@ class ReactionGame(BaseGame):
     """反應力：等待 → 變綠 → 先按的贏這回合；變綠前按＝偷跑。先拿 TARGET_WINS 勝。"""
     key = "reaction"
     title = "🚦 反應力對決"
-    description = "畫面變綠時搶先按！太早按算偷跑，先拿 2 勝"
+    description = "畫面變綠時搶先按！太早按算偷跑，先拿到指定勝場的贏"
     order = 20
     TARGET_WINS = 2
+    SETTING = {"attr": "TARGET_WINS", "label": "先拿幾勝", "fmt": "搶 {} 勝", "default": 2, "min": 1, "max": 7}
     MAX_ROUNDS = 7
     GO_WINDOW = 2.5
     MIN_HUMAN_MS = 90
@@ -63,6 +64,10 @@ class ReactionGame(BaseGame):
     },
   };
 """
+
+    def apply_setting(self, value):
+        self.TARGET_WINS = int(value)
+        self.MAX_ROUNDS = self.TARGET_WINS * 2 + 3     # 預設 2 勝 → 最多 7 回合
 
     def __init__(self, rnd, hub):
         super().__init__(rnd, hub)

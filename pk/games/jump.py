@@ -20,6 +20,7 @@ class JumpGame(TeamGame):
     )
     order = 20
     DURATION = 20.0
+    SETTING = {"attr": "DURATION", "label": "遊玩時間（秒）", "fmt": "{} 秒", "default": 20, "min": 10, "max": 120}
     PERIOD_START = 1.05
     PERIOD_END = 0.68
     WINDOW = 0.42          # 每拍最後這段比例才算跳過

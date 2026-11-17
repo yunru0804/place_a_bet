@@ -27,9 +27,14 @@ SLOT_PAY2 = {"🍒": 1.5, "🍋": 1.5, "🍇": 1.5, "🔔": 2, "⭐": 2, "7️�
 SICBO_PAY = {"big": 2.2, "small": 2.2, "triple": 41}     # 拿回的總倍數（含本金）
 
 # ---------------- 猜大小 ----------------
-# 每次翻一張 A–K，猜下一張比較大還是比較小；一樣大不算輸（平手，倍數不變，繼續猜）。
-# 每猜中一次，倍數 × (1.08 × 12 / 會贏的牌數)；累積到 HILO_CAP 倍自動收手。
+# 每次翻一張 A–K，猜下一張比較大、比較小，或是「一樣」。
+# - 猜大／猜小中了：倍數 × (1.08 × 12 / 會贏的牌數)
+# - 猜大／猜小時抽到一樣大：幸運牌！倍數 × HILO_LUCKY，繼續猜
+# - 猜「一樣」（機率 1/13）：中了倍數 × HILO_SAME，沒中就輸
+# 累積到 HILO_CAP 倍自動收手。
 HILO_EDGE = 1.08
+HILO_LUCKY = 1.5
+HILO_SAME = 12
 HILO_CAP = 20
 RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
 SUITS = ["♠", "♥", "♦", "♣"]
@@ -40,7 +45,9 @@ def _card():
 
 
 def _hilo_step(rank: int, guess: str) -> float:
-    # 一樣大是平手（重抽），所以只看另外 12 張：會贏的機率 = wins / 12
+    if guess == "same":
+        return float(HILO_SAME)
+    # 一樣大另外算幸運牌，所以只看另外 12 張：會贏的機率 = wins / 12
     wins = 13 - rank if guess == "hi" else rank - 1
     return 0.0 if wins == 0 else HILO_EDGE * 12 / wins
 
@@ -50,7 +57,7 @@ def rules() -> dict:
     return {
         "min": CASINO_MIN_BET, "max": CASINO_MAX_BET,
         "slot": [{"s": s, "three": SLOT_PAY3[s], "two": SLOT_PAY2[s]} for s in reversed(list(SLOT_WEIGHTS))],
-        "hilo_cap": HILO_CAP,
+        "hilo_cap": HILO_CAP, "hilo_lucky": HILO_LUCKY, "hilo_same": HILO_SAME,
     }
 
 
@@ -121,6 +128,7 @@ def _hilo_view(row, balance: int, **extra) -> dict:
             "steps": st["steps"], "cashout": int(row["bet"] * mult),
             "next_hi": round(st["mult"] * _hilo_step(st["card"]["r"], "hi"), 2),
             "next_lo": round(st["mult"] * _hilo_step(st["card"]["r"], "lo"), 2),
+            "next_same": round(min(HILO_CAP, st["mult"] * HILO_SAME), 2),
             "balance": balance, **extra}
 
 
@@ -146,8 +154,8 @@ def _hilo_close(conn, row, state, payout) -> None:
 
 
 def hilo_guess(user_id: int, guess: str) -> dict:
-    if guess not in ("hi", "lo"):
-        raise BetError("請選擇大或小。")
+    if guess not in ("hi", "lo", "same"):
+        raise BetError("請選擇大、小或一樣。")
     with db.write() as conn:
         row = _open_hilo(conn, user_id)
         if row is None:
@@ -157,12 +165,13 @@ def hilo_guess(user_id: int, guess: str) -> dict:
         if step == 0:
             raise BetError("這張牌不可能再" + ("大" if guess == "hi" else "小") + "了，換一邊猜。")
         prev, nxt = st["card"], _card()
-        if nxt["r"] == prev["r"]:            # 一樣大：平手，倍數不變，以新牌繼續
-            st["card"] = nxt
-            conn.execute("UPDATE casino SET state = ? WHERE id = ?", (json.dumps(st), row["id"]))
-            return _hilo_view(_open_hilo(conn, user_id), _balance(conn, user_id),
-                              status="open", prev=prev, guess=guess, tie=True)
-        ok = nxt["r"] > prev["r"] if guess == "hi" else nxt["r"] < prev["r"]
+        lucky = False
+        if guess == "same":
+            ok = nxt["r"] == prev["r"]
+        elif nxt["r"] == prev["r"]:          # 猜大／小卻抽到一樣：幸運牌
+            ok, lucky, step = True, True, HILO_LUCKY
+        else:
+            ok = nxt["r"] > prev["r"] if guess == "hi" else nxt["r"] < prev["r"]
         st["card"] = nxt
         if not ok:
             _hilo_close(conn, row, st, 0)
@@ -174,10 +183,11 @@ def hilo_guess(user_id: int, guess: str) -> dict:
             payout = int(row["bet"] * HILO_CAP)
             _hilo_close(conn, row, st, payout)
             return {"status": "cap", "prev": prev, "card": nxt, "guess": guess, "bet": row["bet"],
-                    "mult": HILO_CAP, "payout": payout, "balance": _balance(conn, user_id)}
+                    "mult": HILO_CAP, "payout": payout, "lucky": lucky, "balance": _balance(conn, user_id)}
         conn.execute("UPDATE casino SET state = ? WHERE id = ?", (json.dumps(st), row["id"]))
         row = _open_hilo(conn, user_id)
-        return _hilo_view(row, _balance(conn, user_id), status="open", prev=prev, guess=guess)
+        return _hilo_view(row, _balance(conn, user_id), status="open", prev=prev, guess=guess,
+                          lucky=lucky, step=round(step, 2))
 
 
 def hilo_cashout(user_id: int) -> dict:

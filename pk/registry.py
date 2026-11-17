@@ -30,6 +30,9 @@ GAMES = {c.key: c for c in SPECS if getattr(c, "engine", True) and issubclass(c,
 PK_GAMES = {c.key: (c.title, c.description) for c in SPECS if not getattr(c, "team", False)}
 TEAM_GAMES = {c.key: (c.title, c.description) for c in SPECS if getattr(c, "team", False)}
 GAME_INFO = {**PK_GAMES, **TEAM_GAMES}
+# 可以在開盤時調整關卡數／時間的遊戲：{key: SETTING}
+SETTINGS = {c.key: c.SETTING for c in SPECS if getattr(c, "SETTING", None)}
+SPEC_BY_KEY = {c.key: c for c in SPECS}
 
 
 def client_js() -> str:

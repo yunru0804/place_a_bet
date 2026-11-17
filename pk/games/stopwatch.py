@@ -7,9 +7,11 @@ class StopwatchGame(BaseGame):
     """停錶：多回合目標秒數，碼表短暫顯示後隱藏，累計差距小的贏。"""
     key = "stopwatch"
     title = "⏱ 停錶挑戰"
-    description = "3 回合：在 5 / 10 / 20 秒按停（碼表 2 秒後消失），累計差距小的贏"
+    description = "每回合在目標秒數按停（5、10、20 秒…，碼表 2 秒後消失），累計差距小的贏"
     order = 30
     TARGETS_MS = (5000, 10000, 20000)
+    TARGET_POOL_MS = (5000, 10000, 20000, 8000, 15000, 12000, 25000, 30000)   # 回合數加多時依序往後取
+    SETTING = {"attr": "ROUNDS", "label": "回合數", "fmt": "{} 回合", "default": 3, "min": 1, "max": 8}
     SHOW_MS = 2000
     EXTRA = 8.0
     MISS_PENALTY_MS = 8000
@@ -64,6 +66,9 @@ class StopwatchGame(BaseGame):
     },
   };
 """
+
+    def apply_setting(self, value):
+        self.TARGETS_MS = self.TARGET_POOL_MS[:int(value)]
 
     def __init__(self, rnd, hub):
         super().__init__(rnd, hub)

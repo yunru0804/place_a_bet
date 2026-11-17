@@ -21,6 +21,19 @@ class BaseGame:
     engine = True
     order = 50
     CLIENT_JS = ""
+    # 主持人開盤時可以調整的一個參數（關卡數或遊玩時間）；None = 不能調。
+    # attr：要覆寫的 class 屬性；fmt：顯示在盤名後面的文字，例如「15 秒」。
+    # 例：{"attr": "DURATION", "label": "遊玩時間（秒）", "fmt": "{} 秒", "default": 10, "min": 5, "max": 60}
+    SETTING: dict | None = None
+
+    @classmethod
+    def setting_text(cls, value: int) -> str:
+        return cls.SETTING["fmt"].format(value) if cls.SETTING else ""
+
+    def apply_setting(self, value: int) -> None:
+        """把主持人選的值套到這一場（只改這個物件，不影響預設值）。需要連動其他參數的遊戲可以覆寫。"""
+        attr = self.SETTING["attr"]
+        setattr(self, attr, type(getattr(self, attr))(value))
 
     def __init__(self, rnd, hub):
         self.hub = hub
@@ -31,6 +44,9 @@ class BaseGame:
         self.phase_end: float | None = None
         self.dirty = False
         self.changed = asyncio.Event()
+        value = rnd["setting"] if "setting" in rnd.keys() else None
+        if self.SETTING and value is not None:
+            self.apply_setting(value)
 
     @staticmethod
     def now() -> float:

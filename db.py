@@ -177,6 +177,8 @@ def init_db() -> None:
     for col in ("team_a", "team_b"):
         if col not in round_cols:
             conn.execute(f"ALTER TABLE rounds ADD COLUMN {col} TEXT")
+    if "setting" not in round_cols:      # 主持人開盤時選的關卡數／遊玩時間（NULL = 遊戲預設）
+        conn.execute("ALTER TABLE rounds ADD COLUMN setting INTEGER")
     conn.close()
 
 
@@ -406,8 +408,27 @@ def team_members(conn, team: str):
 
 # ---------- 管理員動作 ----------
 
+def _game_setting(game: str, value) -> tuple[int | None, str]:
+    """檢查主持人填的關卡數／時間，回傳（要存的值, 盤名後綴）。沒填就用遊戲預設。"""
+    from pk.registry import SPEC_BY_KEY
+    spec = SPEC_BY_KEY.get(game)
+    st = getattr(spec, "SETTING", None)
+    if not st:
+        return None, ""
+    if value in (None, ""):
+        value = st["default"]
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        raise BetError(f"{st['label']}必須是整數。")
+    if not st["min"] <= value <= st["max"]:
+        raise BetError(f"{st['label']}要介於 {st['min']} 到 {st['max']}。")
+    return value, " · " + spec.setting_text(value)
+
+
 def create_round(title: str, option_a: str, option_b: str, kind: str = "normal",
-                 game: str | None = None, team_a: str | None = None, team_b: str | None = None) -> None:
+                 game: str | None = None, team_a: str | None = None, team_b: str | None = None,
+                 setting=None) -> None:
     title, option_a, option_b = title.strip(), option_a.strip(), option_b.strip()
     pk_games, team_games = _catalog("PK_GAMES"), _catalog("TEAM_GAMES")
     if kind == "team":
@@ -421,29 +442,31 @@ def create_round(title: str, option_a: str, option_b: str, kind: str = "normal",
                 if not team_members(conn, t):
                     raise BetError(f"{TEAMS[t]}沒有任何隊員。")
         option_a, option_b = TEAMS[team_a], TEAMS[team_b]
-        title = f"{team_games[game][0]}：{option_a} vs {option_b}"
+        setting, suffix = _game_setting(game, setting)
+        title = f"{team_games[game][0]}：{option_a} vs {option_b}{suffix}"
         kind, status = "pk", "locked"   # 團體賽不投票、不下注，直接等主持人開始
     elif kind == "pk":
         team_a = team_b = None
         if game not in pk_games:
             raise BetError("請選擇 PK 遊戲。")
-        title = pk_games[game][0]      # 題目就是遊戲名稱
+        setting, suffix = _game_setting(game, setting)
+        title = pk_games[game][0] + suffix     # 題目就是遊戲名稱（加上本場的關卡數／時間）
         option_a = option_b = ""       # 投票結束後才會填入兩位選手的名字
         status = "voting"
     elif kind == "normal":
         if not (title and option_a and option_b):
             raise BetError("題目與兩個選項都必須填寫。")
         status = "open"
-        game = team_a = team_b = None
+        game = team_a = team_b = setting = None
     else:
         raise BetError("盤的種類不正確。")
     with write() as conn:
         if active_round(conn):
             raise BetError("目前還有未結算的輪次，請先結算或作廢。")
         conn.execute(
-            """INSERT INTO rounds (title, option_a, option_b, kind, game, status, team_a, team_b)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (title, option_a, option_b, kind, game, status, team_a, team_b),
+            """INSERT INTO rounds (title, option_a, option_b, kind, game, status, team_a, team_b, setting)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (title, option_a, option_b, kind, game, status, team_a, team_b, setting),
         )
 
 

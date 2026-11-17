@@ -86,6 +86,8 @@ templates.env.globals["TEAMS"] = db.TEAMS
 templates.env.globals["PK_GAMES"] = PK_GAMES
 templates.env.globals["TEAM_GAMES"] = TEAM_GAMES
 templates.env.globals["GAME_INFO"] = GAME_INFO
+from pk.registry import SETTINGS as GAME_SETTINGS  # noqa: E402
+templates.env.globals["GAME_SETTINGS"] = GAME_SETTINGS
 templates.env.globals["GAME_CLIENT_JS"] = Markup(client_js())
 
 
@@ -387,10 +389,10 @@ def _admin_action(request: Request, fn, *args, ok: str):
 @app.post("/admin/rounds")
 def admin_create_round(request: Request, title: str = Form(""), kind: str = Form("normal"),
                        option_a: str = Form(""), option_b: str = Form(""), game: str = Form(""),
-                       team_a: str = Form(""), team_b: str = Form("")):
+                       team_a: str = Form(""), team_b: str = Form(""), setting: str = Form("")):
     ok = {"pk": "PK 盤已開始投票。", "team": "團體賽已建立，準備好就按「開始」。"}.get(kind, "已開盤。")
     return _admin_action(request, db.create_round, title, option_a, option_b, kind,
-                         game or None, team_a or None, team_b or None, ok=ok)
+                         game or None, team_a or None, team_b or None, setting.strip() or None, ok=ok)
 
 
 @app.post("/admin/rounds/{round_id}/close-vote")

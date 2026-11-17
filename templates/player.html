@@ -4,6 +4,7 @@
 {% block body_class %}player{% if user.team %} team-{{ user.team }}{% endif %}{% endblock %}
 {% block content %}
 {% include "_sfx.html" %}
+{% include "_fx.html" %}
 
 <header class="marquee">
   <div class="bulbs top" aria-hidden="true"></div>
@@ -182,7 +183,7 @@
     {% set kind = 'win' if h.choice == h.result else 'lose' %}
   {% endif %}
   <div class="result-overlay" id="result" hidden
-       data-key="{{ h.key }}" data-kind="{{ kind }}"
+       data-key="{{ h.key }}" data-kind="{{ kind }}" data-amt="{{ (h.delta if h.kind == 'award' else h.amount) or 0 }}"
        data-all="{{ history | map(attribute='key') | join(',') }}">
     <div class="result-card">
       {% if h.kind == 'award' %}
@@ -245,30 +246,17 @@
   if (ov) {
     if (seenRaw !== null && !seen.has(ov.dataset.key)) {
       ov.hidden = false;
-      if (ov.dataset.kind === 'win' && !reduceMotion) confetti();
+      // 獎勵／押中：彩帶砲＋彩帶雨；500 點以上（例如主賽、團體賽獎金）再加金幣雨和煙火
+      if (ov.dataset.kind === 'win' && window.fx) {
+        fx.celebrate(+ov.dataset.amt >= 500 ? 'jackpot' : 'big');
+        setTimeout(() => { if (!ov.hidden) fx.celebrate('small'); }, 1600);
+      }
       if (navigator.vibrate) navigator.vibrate(ov.dataset.kind === 'win' ? [60, 40, 60] : 120);
     }
     store.set(seenKey, ov.dataset.all);
     document.getElementById('result-close').onclick = () => ov.hidden = true;
   } else if (seenRaw === null) {
     store.set(seenKey, '');
-  }
-
-  function confetti() {
-    const colors = ['#f7c948', '#e63946', '#2ec4b6', '#ffffff', '#ff8c42'];
-    const box = document.createElement('div');
-    box.className = 'confetti';
-    for (let i = 0; i < 90; i++) {
-      const s = document.createElement('i');
-      s.style.left = Math.random() * 100 + '%';
-      s.style.background = colors[i % colors.length];
-      s.style.animationDelay = Math.random() * 0.8 + 's';
-      s.style.animationDuration = 2 + Math.random() * 1.5 + 's';
-      s.style.setProperty('--drift', (Math.random() * 120 - 60) + 'px');
-      box.appendChild(s);
-    }
-    document.body.appendChild(box);
-    setTimeout(() => box.remove(), 4500);
   }
 
   // ---- 下注表單：籌碼 ----

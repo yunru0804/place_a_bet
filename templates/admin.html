@@ -30,7 +30,7 @@
       <div id="pk-fields" hidden>
         <label class="field">PK 遊戲
           <select name="game" id="game-select">
-            {% for key, (label, desc) in PK_GAMES.items() %}<option value="{{ key }}" data-desc="{{ desc }}">{{ label }}</option>{% endfor %}
+            {% for key, (label, desc) in PK_GAMES.items() %}<option value="{{ key }}" data-desc="{{ desc }}" data-setting="{{ GAME_SETTINGS.get(key) | tojson | forceescape }}">{{ label }}</option>{% endfor %}
           </select>
         </label>
         <p class="muted small" id="game-desc"></p>
@@ -39,7 +39,7 @@
       <div id="team-fields" hidden>
         <label class="field">團體賽遊戲
           <select name="game" id="team-game" disabled>
-            {% for key, (label, desc) in TEAM_GAMES.items() %}<option value="{{ key }}" data-desc="{{ desc }}">{{ label }}</option>{% endfor %}
+            {% for key, (label, desc) in TEAM_GAMES.items() %}<option value="{{ key }}" data-desc="{{ desc }}" data-setting="{{ GAME_SETTINGS.get(key) | tojson | forceescape }}">{{ label }}</option>{% endfor %}
           </select>
         </label>
         <p class="muted small" id="team-game-desc">{% if TEAM_GAMES %}{{ TEAM_GAMES.values()|list|first|last }}{% endif %}</p>
@@ -53,6 +53,10 @@
         </div>
         <p class="muted small">團體賽不開放下注，建立後直接按「開始」。每一場的勝隊每人自動 +{{ team_prize }} 點，輸的不扣點。卡住可按作廢。</p>
       </div>
+      <label class="field" id="setting-field" hidden><span id="setting-label">關卡數</span>
+        <input name="setting" id="setting-input" type="number" inputmode="numeric" step="1">
+        <small class="muted" id="setting-hint"></small>
+      </label>
       <button type="submit" class="primary" id="newround-btn">開盤</button>
     </form>
   {% else %}
@@ -325,6 +329,17 @@
       document.getElementById('game-desc').textContent = gs.selectedOptions[0]?.dataset.desc || '';
       const td = document.getElementById('team-game-desc');
       if (td) td.textContent = tg.selectedOptions[0]?.dataset.desc || '';
+      // 關卡數／遊玩時間：依選到的遊戲換標籤、範圍與預設值
+      const opt = pk ? gs.selectedOptions[0] : (team ? tg.selectedOptions[0] : null);
+      const st = opt ? JSON.parse(opt.dataset.setting || 'null') : null;
+      const sf = document.getElementById('setting-field'), si = document.getElementById('setting-input');
+      sf.hidden = !st; si.disabled = !st;
+      if (st) {
+        document.getElementById('setting-label').textContent = st.label;
+        if (si.dataset.game !== opt.value) { si.value = st.default; si.dataset.game = opt.value; }
+        si.min = st.min; si.max = st.max;
+        document.getElementById('setting-hint').textContent = `預設 ${st.default}，可填 ${st.min}～${st.max}`;
+      }
     };
     nr.querySelectorAll('input[name=kind]').forEach(r => r.addEventListener('change', sync));
     gs.addEventListener('change', sync);

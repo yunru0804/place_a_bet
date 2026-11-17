@@ -30,9 +30,10 @@ class FlashGame(BaseGame):
     """閃現辨識：窗簾打開瞬間有 emoji 飛過，從很像的選項中選出剛剛那個。"""
     key = "flash"
     title = "🎭 閃現辨識"
-    description = "窗簾打開瞬間有 emoji 飛過，從很像的選項中選出剛剛那個！共 10 回合，越來越快、窗簾開口越來越小，答對多的贏（同分比作答速度）"
+    description = "窗簾打開瞬間有 emoji 飛過，從很像的選項中選出剛剛那個！越來越快、窗簾開口越來越小，答對多的贏（同分比作答速度）"
     order = 60
     ROUNDS = 10
+    SETTING = {"attr": "ROUNDS", "label": "回合數", "fmt": "{} 回合", "default": 10, "min": 3, "max": 20}
     OPTIONS = 6
     FLIGHT_MS = (800, 400)
     GAP = (100, 40)

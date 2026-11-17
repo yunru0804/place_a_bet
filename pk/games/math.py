@@ -31,9 +31,10 @@ class MathGame(BaseGame):
     """搶答心算：同一題四選一，先答對得 1 分；答錯這題就不能再答。"""
     key = "math"
     title = "🧮 搶答心算"
-    description = "共 10 題，同一題誰先答對得 1 分，答錯這題就不能再答，分數高的贏"
+    description = "同一題誰先答對得 1 分，答錯這題就不能再答，分數高的贏"
     order = 40
     TOTAL_Q = 10
+    SETTING = {"attr": "TOTAL_Q", "label": "題數", "fmt": "{} 題", "default": 10, "min": 3, "max": 30}
     Q_TIME = 10.0
     REVEAL = 1.8
     CLIENT_JS = r"""

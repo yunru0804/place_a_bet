@@ -110,7 +110,9 @@
       ? `🏆 ${esc(NAMES[m.result])} 獲勝！<small>${esc(m.summary)}</small>`
       : (m.summary === '本輪已作廢' ? '本輪已作廢' : `🤝 平手！本輪作廢退還<small>${esc(m.summary)}</small>`);
     if (m.result) buzz([80, 40, 80], side && m.result !== side ? 'lose' : 'win');
-    setTimeout(() => location.replace(location.pathname), 3500);
+    // 自己（或自己的隊）贏了：大慶祝；觀眾：小慶祝
+    if (m.result && window.fx && !(side && m.result !== side)) window.fx.celebrate(side ? 'big' : 'small');
+    setTimeout(() => location.replace(location.pathname), 4500);
   };
 
   const connect = () => {

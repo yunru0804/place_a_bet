@@ -18,6 +18,7 @@ class ShakeGame(TeamGame):
     )
     order = 30
     PER_MEMBER = 100
+    SETTING = {"attr": "PER_MEMBER", "label": "每人要搖幾下", "fmt": "每人 {} 下", "default": 100, "min": 30, "max": 500}
     MAX_PER_SEC = 8
     CLIENT_JS = r"""
   let shakeOn = false, lastShake = 0, prevG = null, shakeDenied = false;
