@@ -38,7 +38,7 @@ class TugGame(TeamGame):
         if (side) $('tugbtn').addEventListener('pointerdown', e => {
           e.preventDefault();
           if (!st || st.phase !== 'play') return;
-          tugLocal++; send({a: 'tap'}); pop($('tugbtn'));
+          tugLocal++; send({a: 'tap'}); buzz(0, 'tap'); pop($('tugbtn'));
         });
       }
       $('knot').style.left = (50 + s.pos * 0.42) + '%';

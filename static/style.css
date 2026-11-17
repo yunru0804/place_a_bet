@@ -903,3 +903,11 @@ body.pk-on .arena-head { margin-bottom: 8px; }
 .hl-btn:active { transform: translateY(3px); }
 .hl-btn:disabled { opacity: .35; }
 .hl-cash { display: block; width: 100%; padding: 12px; font-size: 1.05rem; color: var(--gold-hi); border-color: var(--gold); }
+
+/* 音效開關 */
+.sfx-toggle {
+  position: fixed; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 30;
+  width: 42px; height: 42px; border-radius: 50%; padding: 0; font-size: 1.15rem; line-height: 1;
+  background: rgba(3,26,17,.85); border: 1px solid var(--line); box-shadow: 0 4px 12px rgba(0,0,0,.4);
+}
+.sfx-toggle.off { opacity: .6; }

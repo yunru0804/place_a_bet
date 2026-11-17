@@ -29,7 +29,7 @@ class TapGame(BaseGame):
         $('tap').addEventListener('pointerdown', e => {
           e.preventDefault();
           if (!st || st.phase !== 'play' || performance.now() > at(st.ends_in)) return;
-          tapLocal++; send({a: 'tap'}); setPanels(); pop($('tap'));
+          tapLocal++; send({a: 'tap'}); buzz(0, 'tap'); setPanels(); pop($('tap'));
         });
       }
       const b = $('tap');

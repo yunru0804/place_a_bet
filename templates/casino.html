@@ -2,6 +2,7 @@
 {% block title %}{{ user.name }} · 娛樂城{% endblock %}
 {% block body_class %}player casino-page{% if user.team %} team-{{ user.team }}{% endif %}{% endblock %}
 {% block content %}
+{% include "_sfx.html" %}
 
 <div class="cs-top">
   <a class="cs-back" href="/p/{{ user.token }}">‹ 回下注</a>
@@ -128,6 +129,7 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
   };
   const buzz = p => { if (navigator.vibrate) navigator.vibrate(p); };
+  const sfx = n => { if (window.sfx) window.sfx.play(n); };
   const wait = ms => new Promise(r => setTimeout(r, reduceMotion ? 0 : ms));
   const shakeEl = el => { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); };
   let busy = false;
@@ -178,13 +180,13 @@
     return v;
   };
   document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
-    buzz(8);
+    buzz(8); sfx('chip');
     c.classList.remove('tap'); void c.offsetWidth; c.classList.add('tap');
     amt.value = RULES.max ? Math.min(+c.dataset.set, RULES.max) : +c.dataset.set;
   }));
   $('allin').addEventListener('click', () => {
     if (amt.disabled) return;
-    buzz([10, 30, 10]);
+    buzz([10, 30, 10]); sfx('chip');
     amt.value = RULES.max ? Math.min(balance, RULES.max) : balance;
     amt.classList.remove('bump'); void amt.offsetWidth; amt.classList.add('bump');
   });
@@ -237,7 +239,7 @@
     slotMsg.className = 'cs-msg'; slotMsg.textContent = '轉轉轉…';
     buzz(15);
     reels.forEach(r => r.classList.add('spinning'));
-    const timers = reels.map(r => setInterval(() => { r.firstChild.textContent = rnd(); }, 70));
+    const timers = reels.map(r => setInterval(() => { r.firstChild.textContent = rnd(); sfx('tick'); }, 70));
     const [res] = await Promise.all([call('slot', {bet}), wait(600)]);
     if (res.error) {
       timers.forEach(clearInterval); reels.forEach(r => r.classList.remove('spinning'));
@@ -249,6 +251,7 @@
       clearInterval(timers[i]);
       reels[i].firstChild.textContent = res.reels[i];
       reels[i].classList.remove('spinning');
+      sfx('stop');
       reels[i].classList.add('stop'); setTimeout(() => reels[i].classList.remove('stop'), 300);
       buzz(10);
     }
@@ -259,10 +262,10 @@
     if (res.line === 'three') {
       slotMsg.textContent = `${res.reels[0]} 連線！× ${res.mult}　+${net}`;
       slotMsg.className = 'cs-msg jackpot';
-      confetti(); buzz([80, 40, 80, 40, 160]);
+      confetti(); buzz([80, 40, 80, 40, 160]); sfx('jackpot');
     } else if (net > 0) {
       slotMsg.textContent = `兩個一樣 × ${res.mult}　+${net}`;
-      slotMsg.className = 'cs-msg good'; buzz([50, 30, 50]);
+      slotMsg.className = 'cs-msg good'; buzz([50, 30, 50]); sfx('coin');
     } else if (net === 0 && res.payout) {
       slotMsg.textContent = '兩個一樣，退回本金'; slotMsg.className = 'cs-msg';
     } else {
@@ -284,7 +287,7 @@
     busy = true; picks.forEach(p => { p.disabled = true; p.classList.toggle('picked', p === btn); });
     sbMsg.className = 'cs-msg'; sbMsg.textContent = `押「${PICK_NAME[btn.dataset.pick]}」${bet} 點，搖骰中…`;
     $('dice').classList.add('rolling'); buzz([20, 30, 20, 30, 20]);
-    const roll = setInterval(() => dice.forEach(d => setDie(d, 1 + Math.floor(Math.random() * 6))), 90);
+    const roll = setInterval(() => { dice.forEach(d => setDie(d, 1 + Math.floor(Math.random() * 6))); sfx('roll'); }, 90);
     const [res] = await Promise.all([call('sicbo', {bet, pick: btn.dataset.pick}), wait(1100)]);
     clearInterval(roll); $('dice').classList.remove('rolling');
     if (res.error) {
@@ -298,9 +301,9 @@
       if (net > 0) {
         sbMsg.textContent = `${what}　你贏了 +${net}`; sbMsg.className = 'cs-msg ' + (res.pick === 'triple' ? 'jackpot' : 'good');
         if (res.pick === 'triple') confetti();
-        buzz([50, 30, 50]);
+        buzz([50, 30, 50]); sfx(res.pick === 'triple' ? 'jackpot' : 'coin');
       } else {
-        sbMsg.textContent = `${what}　-${res.bet}`;
+        sbMsg.textContent = `${what}　-${res.bet}`; sfx('lose');
         sbMsg.className = 'cs-msg';
       }
     }
@@ -319,6 +322,7 @@
     el.innerHTML = `<b>${RANKS[c.r]}</b><span>${c.s}</span><b class="br">${c.s}</b>`;
   };
   const flip = async (el, c) => {
+    sfx('flip');
     el.classList.add('flipping');
     await wait(160);
     paint(el, c);
@@ -368,20 +372,20 @@
     paint(hlPrev, res.prev);
     await flip(hlCard, res.card);
     if (res.status === 'open' && res.tie) {
-      hlMsg.className = 'cs-msg'; hlMsg.textContent = '一樣大，平手！倍數不變，繼續猜';
+      hlMsg.className = 'cs-msg'; hlMsg.textContent = '一樣大，平手！倍數不變，繼續猜'; sfx('blip');
       hiloOpen(res);
     } else if (res.status === 'open') {
       hlMsg.className = 'cs-msg good'; hlMsg.textContent = '猜中了！繼續猜，或收手';
-      buzz([30, 20, 30]);
+      buzz([30, 20, 30]); sfx('coin');
       hiloOpen(res);
     } else if (res.status === 'lose') {
       hlMsg.className = 'cs-msg'; hlMsg.textContent = `猜錯了… -${res.bet}`;
       setBalance(res.balance); showNet(-res.bet); addRecent('hilo', res.bet, 0);
-      buzz(120); hiloIdle();
+      buzz(120); sfx('lose'); hiloIdle();
     } else {   // cap
       hlMsg.className = 'cs-msg jackpot'; hlMsg.textContent = `封頂 × ${res.mult}！自動收手 +${res.payout - res.bet}`;
       setBalance(res.balance); showNet(res.payout - res.bet); addRecent('hilo', res.bet, res.payout);
-      confetti(); hiloIdle();
+      confetti(); sfx('jackpot'); hiloIdle();
     }
   }));
   hlCash.addEventListener('click', async () => {
@@ -393,7 +397,7 @@
     const net = res.payout - res.bet;
     hlMsg.className = 'cs-msg good'; hlMsg.textContent = `收手！× ${res.mult}　+${net}`;
     setBalance(res.balance); showNet(net); addRecent('hilo', res.bet, res.payout);
-    buzz([50, 30, 50]); hiloIdle();
+    buzz([50, 30, 50]); sfx('win'); hiloIdle();
   });
 
   // 重新整理時還有沒打完的牌局 → 接著玩

@@ -25,12 +25,12 @@ class ShakeGame(TeamGame):
   const needsMotionPerm = !!(typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission);
   const httpBlocked = needsMotionPerm && !window.isSecureContext;
   const shakeOnce = () => {
-    if (!st || st.phase !== 'play') return;
+    if (GAME !== 'shake' || !st || st.phase !== 'play') return;
     const now = performance.now();
     if (now - lastShake < 90) return;
     lastShake = now;
     send({a: 'shake'});
-    buzz(12);
+    buzz(12, 'fizz');
     const b = $('champ-' + side);
     if (b) { b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); }
   };
@@ -56,7 +56,8 @@ class ShakeGame(TeamGame):
     shakeOn = true;
     G.shake.render(st || SHAKE_IDLE);
   };
-  if (side && !needsMotionPerm) {
+  // 所有遊戲的 JS 都在同一個擂台裡，只有開香檳這場才掛感應器
+  if (GAME === 'shake' && side && !needsMotionPerm) {
     window.addEventListener('devicemotion', onMotion);
     shakeOn = true;
   }

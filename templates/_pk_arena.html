@@ -40,7 +40,12 @@
   let st = null, prev = null, recvAt = 0, ws = null, ended = false, ticking = false;
   const at = ms => recvAt + ms;                       // 伺服器給的「幾毫秒後」→ 本機時間
   const send = obj => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
-  const buzz = ms => { if (navigator.vibrate) navigator.vibrate(ms); };
+  // 震動（Android）＋音效（iPhone 不能震動，至少有聲音）；snd 指定音效名稱，不給就依震動長度挑
+  const buzz = (ms, snd) => {
+    if (ms && navigator.vibrate) navigator.vibrate(ms);
+    if (window.sfx) snd ? window.sfx.play(snd) : window.sfx.fromBuzz(ms);
+  };
+  let lastCount = null;
   const changed = (...keys) => !prev || keys.some(k => JSON.stringify(prev[k]) !== JSON.stringify(st[k]));
   const pop = node => { node.classList.remove('hit'); void node.offsetWidth; node.classList.add('hit'); };
 
@@ -68,7 +73,9 @@
     const now = performance.now();
     if (st.phase === 'countdown') {
       count.hidden = false;
-      count.textContent = Math.max(1, Math.ceil((at(st.ends_in) - now) / 1000));
+      const n = Math.max(1, Math.ceil((at(st.ends_in) - now) / 1000));
+      if (n !== lastCount) { lastCount = n; buzz(0, 'beep'); }
+      count.textContent = n;
     } else count.hidden = true;
     timer.textContent = st.ends_in !== null && st.phase !== 'countdown'
       ? Math.max(0, (at(st.ends_in) - now) / 1000).toFixed(1) : '';
@@ -84,6 +91,7 @@
       window.scrollTo(0, 0);
       document.querySelectorAll('.badge.locked').forEach(b => { b.className = 'badge playing'; b.textContent = '⚡ 比賽中'; });
     }
+    if (prev && prev.phase === 'countdown' && m.phase !== 'countdown') buzz(0, 'go');
     if (!G[GAME]) return;
     label.textContent = G[GAME].label(m);
     G[GAME].render(m);
@@ -101,7 +109,7 @@
     r.innerHTML = m.result
       ? `🏆 ${esc(NAMES[m.result])} 獲勝！<small>${esc(m.summary)}</small>`
       : (m.summary === '本輪已作廢' ? '本輪已作廢' : `🤝 平手！本輪作廢退還<small>${esc(m.summary)}</small>`);
-    if (m.result) buzz([80, 40, 80]);
+    if (m.result) buzz([80, 40, 80], side && m.result !== side ? 'lose' : 'win');
     setTimeout(() => location.replace(location.pathname), 3500);
   };
 

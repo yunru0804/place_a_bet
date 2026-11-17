@@ -54,7 +54,7 @@
       <button type="submit" class="primary" id="newround-btn">開盤</button>
     </form>
   {% else %}
-    {% set labels = {'voting': '🗳️ 投票中', 'open': '開盤中', 'locked': ('🪢 準備開賽' if round.team_a else '已關盤'), 'playing': '⚡ 比賽中'} %}
+    {% set labels = {'voting': '🗳️ 投票中', 'open': '開盤中', 'locked': (GAME_INFO[round.game][0].split(' ')[0] ~ ' 準備開賽' if round.team_a else '已關盤'), 'playing': '⚡ 比賽中'} %}
     <div class="row-between">
       <span class="badge {{ round.status }}">{{ labels[round.status] }}</span>
       <span class="muted small">{% if round.kind == 'pk' %}<span class="pk-tag">{{ '團體' if round.game in GAME_INFO and round.team_a else 'PK' }}</span> {% endif %}第 {{ round.id }} 輪 · {{ round.created_at }}</span>

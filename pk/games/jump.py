@@ -15,7 +15,7 @@ class JumpGame(TeamGame):
     key = "jump"
     title = "🤸 跳繩"
     description = (
-        "跟上繩拍一起跳！跳過就得分，連續跳過連跳加成；"
+        "拿著手機跟上繩拍一起跳（往上一頓就算跳，也可以按按鈕）！跳過就得分，連續跳過連跳加成；"
         "全隊同一拍都跳過再加齊跳分。時間到比總分，人少不吃虧。勝隊每人 +500 點。"
     )
     order = 20
@@ -26,8 +26,58 @@ class JumpGame(TeamGame):
     COMBO_CAP = 5
     TOGETHER = 4           # 齊跳基礎分（再乘連續齊跳次數，最後除人數）
     CLIENT_JS = r"""
-  let jumpedBeat = -1;
+  let jumpedBeat = -1, jmOn = false, jmDenied = false, jmLast = 0, jmShown = null;
+  // 現在是不是在「該跳」的區間：用本機時間即時算（伺服器只在每拍開頭送一次狀態）
+  const jmWindow = () => st && st.phase === 'play' && st.beat_in != null
+    && at(st.beat_in) - performance.now() <= st.window_ms;
+  const jmPaint = () => {
+    const on = jmWindow(), used = jumpedBeat === st.beat;
+    const key = `${st.beat}|${on}|${used}`;
+    if (key === jmShown) return;
+    jmShown = key;
+    $('jr').classList.toggle('go', on);
+    $('jr').classList.toggle('wait', !on);
+    $('jrkid').textContent = on ? '🤸' : '🧍';
+    const hint = $('jrhint'), b = $('jrbtn');
+    if (side && used) hint.textContent = '跳過！等下一拍';
+    else hint.textContent = on ? (jmOn ? '跳！（往上一頓）' : '跳！') : '等繩子過來…';
+    if (b) { b.disabled = used; b.textContent = used ? '已跳 ✓' : (on ? '跳！' : '等拍子'); }
+  };
+  const JUMP_IDLE = {phase: 'ready'};
+  const JM_NEED_PERM = !!(typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission);
+  const JM_HTTP = JM_NEED_PERM && !window.isSecureContext;
+  const JM_G = 17;          // 合加速度超過約 1.7g 算「往上一頓」（起跳或把手機往上甩）
+  const JM_COOLDOWN = 450;  // 落地那一下也會很大，冷卻 0.45 秒避免算成下一拍偷跑
+  const doJump = () => {
+    if (GAME !== 'jump' || !st || st.phase !== 'play' || jumpedBeat === st.beat) return;
+    jumpedBeat = st.beat;
+    send({a: 'jump'}); buzz(18, 'jump');
+    const b = $('jrbtn'); if (b) pop(b);
+    G.jump.render(st);
+  };
+  const onJumpMotion = e => {
+    const g = e.accelerationIncludingGravity;
+    if (!g) return;
+    const m = Math.hypot(g.x || 0, g.y || 0, g.z || 0);
+    const now = performance.now();
+    if (m > JM_G && now - jmLast > JM_COOLDOWN) { jmLast = now; doJump(); }
+  };
+  const armJump = async () => {
+    if (jmOn || JM_HTTP) return;
+    try {
+      if (JM_NEED_PERM && await DeviceMotionEvent.requestPermission() !== 'granted') throw 0;
+    } catch (err) { jmDenied = true; G.jump.render(st || JUMP_IDLE); return; }
+    window.addEventListener('devicemotion', onJumpMotion);
+    jmOn = true;
+    G.jump.render(st || JUMP_IDLE);
+  };
+  if (GAME === 'jump' && side && !JM_NEED_PERM) {     // Android：不用問權限，直接開
+    window.addEventListener('devicemotion', onJumpMotion);
+    jmOn = true;
+  }
   G.jump = {
+    // 開賽前就顯示「開啟體感」：iPhone 要先按一下、選允許
+    prepare() { if (side) G.jump.render(JUMP_IDLE); },
     label: s => s.phase === 'play'
       ? (s.together && s.together[side || 'A'] > 1 ? `齊跳 ×${s.together[side || 'A']}！` : '跟著跳！')
       : (s.phase === 'done' ? '比賽結束' : '準備…'),
@@ -52,34 +102,39 @@ class JumpGame(TeamGame):
             '<div class="jr-floor"></div>' +
           '</div>' +
           '<div class="jr-hint" id="jrhint"></div>' +
-          (side ? `<button type="button" class="tap-btn jr-btn ${$('panel-' + side).className.match(/team-\w+/)?.[0] || ''}" id="jrbtn" disabled>準備…</button>` : '');
-        if (side) $('jrbtn').addEventListener('pointerdown', e => {
-          e.preventDefault();
-          if (!st || st.phase !== 'play' || jumpedBeat === st.beat) return;
-          jumpedBeat = st.beat;
-          send({a: 'jump'}); buzz(18); pop($('jrbtn')); G.jump.render(st);
-        });
+          (side ? `<button type="button" class="tap-btn jr-btn ${$('panel-' + side).className.match(/team-\w+/)?.[0] || ''}" id="jrbtn">準備…</button>` : '');
+        if (side) {
+          const jb = $('jrbtn');
+          // iOS 只把 click 當成使用者手勢，權限一定要在 click 裡要
+          jb.addEventListener('click', () => {
+            if ((!st || st.phase !== 'play') && !jmOn && !JM_HTTP && !jmDenied) armJump();
+          });
+          // 比賽中按按鈕也算跳（備用）
+          jb.addEventListener('pointerdown', e => {
+            if (!st || st.phase !== 'play') return;
+            e.preventDefault();
+            doJump();
+          });
+        }
       }
       const hint = $('jrhint');
       const b = $('jrbtn');
       if (s.phase !== 'play') {
         $('jr').classList.remove('go', 'wait');
-        if (hint) hint.textContent = s.phase === 'done' ? '時間到！' : '繩子要轉了…';
-        if (b) { b.disabled = true; b.textContent = s.phase === 'done' ? '結束' : '準備…'; }
+        if (hint) hint.textContent = s.phase === 'done' ? '時間到！'
+          : !side ? '繩子要轉了…'
+          : JM_HTTP ? '這個網址不能用體感，比賽時請按按鈕跳'
+          : jmDenied ? '動作權限被拒絕：比賽時請按按鈕跳，或關掉分頁重開連結再開啟'
+          : jmOn ? '體感已開啟！拿著手機，繩子到腳下時往上跳' : '先按「開啟體感」→ 選「允許」';
+        if (b) {
+          const canArm = s.phase !== 'done' && !jmOn && !JM_HTTP && !jmDenied;
+          b.disabled = !canArm;
+          b.textContent = s.phase === 'done' ? '結束' : (canArm ? '開啟體感' : '等開始');
+        }
         return;
       }
-      const windowOn = s.beat_in != null && s.beat_in <= s.window_ms;
-      $('jr').classList.toggle('go', windowOn);
-      $('jr').classList.toggle('wait', !windowOn);
-      if (hint) {
-        if (side && jumpedBeat === s.beat) hint.textContent = '跳過！等下一拍';
-        else hint.textContent = windowOn ? '跳！' : '等繩子過來…';
-      }
-      if (b) {
-        const used = jumpedBeat === s.beat;
-        b.disabled = used;
-        b.textContent = used ? '已跳 ✓' : (windowOn ? '跳！' : '等拍子');
-      }
+      jmShown = null;
+      jmPaint();
     },
     tick(now) {
       if (!st || st.phase !== 'play') return;
@@ -91,8 +146,7 @@ class JumpGame(TeamGame):
         arc.style.transform = `scaleY(${(1 - p * 2).toFixed(3)})`;
         arc.classList.toggle('front', foot);
       }
-      const kid = $('jrkid');
-      if (kid) kid.textContent = (st.beat_in != null && st.beat_in <= st.window_ms) ? '🤸' : '🧍';
+      if ($('jr')) jmPaint();
     },
   };
 """
