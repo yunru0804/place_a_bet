@@ -32,7 +32,7 @@ body {
     linear-gradient(180deg, var(--felt) 0%, var(--felt-dark) 55%, var(--felt-deep) 100%);
   background-attachment: fixed;
 }
-.wrap { max-width: 520px; margin: 0 auto; padding: 16px 16px calc(32px + env(safe-area-inset-bottom)); }
+.wrap { max-width: 520px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom)); }
 body:not(.player) .wrap { max-width: 760px; }
 h1, h2, h3 { margin: 0 0 12px; line-height: 1.25; }
 .muted { color: var(--muted); } .small { font-size: .85rem; }

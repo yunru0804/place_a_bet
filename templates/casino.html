@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ user.name }} · 娛樂城{% endblock %}
+{% block manifest %}<link rel="manifest" href="/p/{{ user.token }}/manifest.webmanifest" crossorigin="use-credentials">{% endblock %}
 {% block body_class %}player casino-page{% if user.team %} team-{{ user.team }}{% endif %}{% endblock %}
 {% block content %}
 {% include "_sfx.html" %}

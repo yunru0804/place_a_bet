@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from markupsafe import Markup
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -58,6 +58,30 @@ def inline_css() -> Markup:
 
 
 templates.env.globals["inline_css"] = inline_css
+
+
+# 主畫面圖示：一樣直接內嵌（data URI）。ngrok 免費版會把瀏覽器單獨抓的圖片導到警告頁，圖示就會壞掉。
+def _icon_uri(name: str) -> str:
+    import base64
+    with open(os.path.join(BASE_DIR, "static", "icons", name), "rb") as f:
+        return "data:image/png;base64," + base64.b64encode(f.read()).decode()
+
+
+ICONS = {k: _icon_uri(f) for k, f in {"apple": "apple-touch-icon.png", "favicon": "favicon-32.png",
+                                       "192": "icon-192.png", "512": "icon-512.png"}.items()}
+templates.env.globals["ICONS"] = ICONS
+
+
+def _manifest(name: str, short: str, start: str) -> JSONResponse:
+    """加到主畫面用（Android 讀這個；iPhone 讀 <link rel=apple-touch-icon>）。每位玩家各自一份，打開就是自己的頁面。"""
+    return JSONResponse({
+        "name": name, "short_name": short, "lang": "zh-Hant",
+        "start_url": start, "scope": start, "id": start,
+        "display": "standalone", "orientation": "portrait",
+        "background_color": "#031a11", "theme_color": "#0b3d2a",
+        "icons": [{"src": ICONS["192"], "sizes": "192x192", "type": "image/png"},
+                  {"src": ICONS["512"], "sizes": "512x512", "type": "image/png"}],
+    }, media_type="application/manifest+json")
 templates.env.globals["TEAMS"] = db.TEAMS
 templates.env.globals["PK_GAMES"] = PK_GAMES
 templates.env.globals["TEAM_GAMES"] = TEAM_GAMES
@@ -152,6 +176,24 @@ def player_bet(token: str, amount: str = Form("0"), choice: str | None = Form(No
     except db.BetError as e:
         return redirect(f"/p/{token}", str(e), error=True)
     return redirect(f"/p/{token}", msg)
+
+
+@app.get("/p/{token}/manifest.webmanifest")
+def player_manifest(token: str):
+    with db.read() as conn:
+        user = _player(conn, token)
+    return _manifest(f"DS科大賭場 · {user['name']}", "DS科大賭場", f"/p/{token}")
+
+
+@app.get("/admin/manifest.webmanifest")
+def admin_manifest():
+    return _manifest("DS科大賭場 · 後台", "DS賭場後台", "/admin")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    import base64
+    return Response(base64.b64decode(ICONS["favicon"].split(",", 1)[1]), media_type="image/png")
 
 
 @app.get("/p/{token}/state")
