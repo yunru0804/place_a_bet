@@ -208,6 +208,25 @@
   </table>
 </section>
 
+{% if casino %}
+<section class="card">
+  <h2>🎰 娛樂城</h2>
+  <p class="muted small">玩家自己玩的拉霸、骰寶、猜大小（已算進上面的總點數）</p>
+  <table>
+    <thead><tr><th>玩家</th><th class="num">手數</th><th class="num">總押注</th><th class="num">淨輸贏</th></tr></thead>
+    <tbody>
+    {% for c in casino %}
+      <tr>
+        <td>{{ c.name }}{% if c.team %} <span class="team-tag team-{{ c.team }}">{{ TEAMS[c.team] }}</span>{% endif %}</td>
+        <td class="num">{{ c.hands }}</td><td class="num">{{ c.wagered }}</td>
+        <td class="num" style="color: {{ 'var(--win)' if c.net > 0 else ('var(--lose)' if c.net < 0 else 'inherit') }}">{{ '+' if c.net > 0 }}{{ c.net }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
 <section class="card">
   <h2>玩家與專屬連結</h2>
   <form method="post" action="/admin/players" class="add-player">

@@ -22,6 +22,12 @@
   {% endif %}
 </section>
 
+<a class="casino-entry" href="/p/{{ user.token }}/casino">
+  <span class="ce-icons" aria-hidden="true">🎰🎲🃏</span>
+  <span class="ce-text"><b>娛樂城</b><small>拉霸機 · 骰寶比大小 · 撲克猜大小</small></span>
+  <span class="ce-go" aria-hidden="true">›</span>
+</a>
+
 {% set pk = round and round.kind == 'pk' %}
 {% if eliminated and not pk %}
   <section class="table-card state-card">

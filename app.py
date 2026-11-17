@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+import casino
 import db
 from pk.hub import hub
 from pk.registry import GAME_INFO, PK_GAMES, TEAM_GAMES, client_js
@@ -98,7 +99,7 @@ def player_page(request: Request, token: str):
     return templates.TemplateResponse(request, "player.html", {
         **pk,
         "user": user, "round": rnd, "bet": bet, "history": history, "epoch": epoch, "adj": adj,
-        "max_bet": min(db.MAX_BET, available), "min_bet": db.MIN_BET,
+        "max_bet": available if db.MAX_BET is None else min(db.MAX_BET, available), "min_bet": db.MIN_BET,
         # 剩不到最低注額就等於出局
         "eliminated": user["balance"] < db.MIN_BET and user["pending"] == 0,
         "msg": request.query_params.get("msg"), "err": request.query_params.get("err"),
@@ -166,6 +167,68 @@ def player_state(token: str):
                          "epoch": epoch, "adj": adj, "team": user["team"]})
 
 
+# ======================= 娛樂城（玩家自己玩） =======================
+
+@app.get("/p/{token}/casino", response_class=HTMLResponse)
+def casino_page(request: Request, token: str):
+    with db.read() as conn:
+        user = _player(conn, token)
+        rnd = db.active_round(conn)
+        hilo = casino.hilo_current(conn, user["id"])
+        recent = casino.recent(conn, user["id"])
+    return templates.TemplateResponse(request, "casino.html", {
+        "user": user, "rules": casino.rules(), "hilo": hilo, "recent": recent,
+        "round_status": rnd["status"] if rnd else None,
+    })
+
+
+async def _casino_call(request: Request, token: str, fn, *keys):
+    with db.read() as conn:
+        user = _player(conn, token)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    args = []
+    for k in keys:
+        v = body.get(k)
+        if k == "bet":
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": "點數必須是整數。"}, status_code=400)
+        args.append(v)
+    try:
+        return JSONResponse(fn(user["id"], *args))
+    except db.BetError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/p/{token}/casino/slot")
+async def casino_slot(request: Request, token: str):
+    return await _casino_call(request, token, casino.spin, "bet")
+
+
+@app.post("/p/{token}/casino/sicbo")
+async def casino_sicbo(request: Request, token: str):
+    return await _casino_call(request, token, casino.sicbo, "bet", "pick")
+
+
+@app.post("/p/{token}/casino/hilo/start")
+async def casino_hilo_start(request: Request, token: str):
+    return await _casino_call(request, token, casino.hilo_start, "bet")
+
+
+@app.post("/p/{token}/casino/hilo/guess")
+async def casino_hilo_guess(request: Request, token: str):
+    return await _casino_call(request, token, casino.hilo_guess, "guess")
+
+
+@app.post("/p/{token}/casino/hilo/cashout")
+async def casino_hilo_cashout(request: Request, token: str):
+    return await _casino_call(request, token, casino.hilo_cashout)
+
+
 # ======================= 管理員 =======================
 
 def _is_admin(request: Request) -> bool:
@@ -207,6 +270,7 @@ def admin_page(request: Request):
             "board": db.leaderboard(conn),
             "past": db.past_rounds(conn),
             "awards": db.recent_awards(conn),
+            "casino": casino.summary(conn),
             "team_counts": db.team_counts(conn),
             "prize": db.MAIN_MATCH_PRIZE,
             "team_prize": db.TEAM_MATCH_PRIZE,

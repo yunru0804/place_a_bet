@@ -19,7 +19,7 @@ INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
 DB_PATH = os.environ.get("BET_DB", os.path.join(INSTANCE_DIR, "bets.db"))
 
 INITIAL_POINTS = 1000
-MAX_BET = 1000
+MAX_BET = None              # None = 沒有上限，可以 ALL IN（只受餘額限制）
 MIN_BET = 10
 MAIN_MATCH_PRIZE = 500
 TEAM_MATCH_PRIZE = 500      # 團體賽每一場的勝隊，每位成員自動 +500
@@ -102,6 +102,21 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 INSERT OR IGNORE INTO meta (key, value) VALUES ('epoch', '0');
 
+-- 娛樂城（玩家自己玩的拉霸、骰寶、猜大小）：每一手一筆。
+-- status = open 表示還在進行中（猜大小連猜中），押注已先扣掉；done 時 payout 是拿回的總額（0 = 輸）
+CREATE TABLE IF NOT EXISTS casino (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    game        TEXT NOT NULL,
+    bet         INTEGER NOT NULL CHECK (bet > 0),
+    payout      INTEGER NOT NULL DEFAULT 0,
+    status      TEXT NOT NULL DEFAULT 'done' CHECK (status IN ('open', 'done')),
+    state       TEXT NOT NULL DEFAULT '{}',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS casino_user ON casino (user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS casino_one_open ON casino (user_id) WHERE status = 'open';
+
 CREATE TABLE IF NOT EXISTS bets (
     id          INTEGER PRIMARY KEY,
     user_id     INTEGER NOT NULL REFERENCES users(id),
@@ -120,9 +135,13 @@ SELECT u.id, u.name, u.token, u.team,
            WHEN r.status = 'settled'                         THEN -b.amount
            WHEN r.status IN ('open', 'locked', 'playing')    THEN -b.amount
            ELSE 0 END), 0)
-       + (SELECT COALESCE(SUM(a.delta), 0) FROM adjustments a WHERE a.user_id = u.id) AS balance,
+       + (SELECT COALESCE(SUM(a.delta), 0) FROM adjustments a WHERE a.user_id = u.id)
+       + (SELECT COALESCE(SUM(CASE WHEN c.status = 'done' THEN c.payout - c.bet ELSE -c.bet END), 0)
+          FROM casino c WHERE c.user_id = u.id) AS balance,
        COALESCE(SUM(CASE WHEN r.status IN ('open', 'locked', 'playing')
-                         THEN b.amount ELSE 0 END), 0) AS pending
+                         THEN b.amount ELSE 0 END), 0)
+       + (SELECT COALESCE(SUM(c.bet), 0) FROM casino c
+          WHERE c.user_id = u.id AND c.status = 'open') AS pending
 FROM users u
 LEFT JOIN bets b   ON b.user_id = u.id
 LEFT JOIN rounds r ON r.id = b.round_id
@@ -349,7 +368,7 @@ def place_bet(user_id: int, choice: str | None, amount: int) -> str:
         existing = get_bet(conn, user_id, rnd["id"])
         # 餘額已扣掉本輪舊注，所以可用額度要加回來
         available = user["balance"] + (existing["amount"] if existing else 0)
-        limit = min(MAX_BET, available)
+        limit = available if MAX_BET is None else min(MAX_BET, available)
 
         if amount < MIN_BET:
             raise BetError(f"最少要押 {MIN_BET} 點。")
@@ -629,6 +648,7 @@ def reset_game() -> str:
     path = backup("before-reset")
     with write() as conn:
         conn.execute("DELETE FROM adjustments")
+        conn.execute("DELETE FROM casino")
         conn.execute("DELETE FROM votes")
         conn.execute("DELETE FROM bets")
         conn.execute("DELETE FROM rounds")
@@ -645,6 +665,7 @@ def delete_user(user_id: int) -> str:
     backup("before-delete")
     with write() as conn:
         conn.execute("DELETE FROM adjustments WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM casino WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM votes WHERE voter_id = ? OR candidate_id = ?", (user_id, user_id))
         conn.execute("DELETE FROM bets WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
