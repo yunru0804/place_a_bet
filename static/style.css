@@ -914,3 +914,46 @@ body.pk-on .arena-head { margin-bottom: 8px; }
   background: rgba(3,26,17,.85); border: 1px solid var(--line); box-shadow: 0 4px 12px rgba(0,0,0,.4);
 }
 .sfx-toggle.off { opacity: .6; }
+
+/* 聲音模仿 */
+.vo { text-align: center; padding: 6px 0 4px; }
+.vo-role { min-height: 1.5em; margin-bottom: 10px; font-weight: 700; line-height: 1.5; }
+.vo-role b { color: var(--gold-hi); font-size: 1.15rem; }
+.vo-meter { height: 10px; margin: 0 auto 10px; max-width: 280px; border-radius: 99px; background: rgba(0,0,0,.35); overflow: hidden; }
+.vo-meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--win), var(--gold), var(--red)); transition: width .08s; }
+.vo-msg { min-height: 1.4em; margin-bottom: 10px; color: var(--gold-hi); font-weight: 700; }
+.vo-btns { display: grid; gap: 10px; }
+.vo-btn {
+  padding: 14px 12px; border: none; border-radius: 16px; font-size: 1.1rem; font-weight: 900; color: #fff;
+  background: linear-gradient(180deg, #3a3a48, #1a1a22); box-shadow: 0 5px 0 rgba(0,0,0,.45);
+}
+.vo-btn:active { transform: translateY(3px); }
+.vo-btn:disabled { opacity: .45; }
+.vo-btn.big { padding: 20px 12px; font-size: 1.4rem; background: linear-gradient(180deg, #e63946, #9d0208); }
+.vo-btn.rec { padding: 20px 12px; font-size: 1.4rem; background: linear-gradient(180deg, #ff4d5e, #b0001a); animation: rec-pulse 1s ease-in-out infinite; }
+.vo-btn.play { background: linear-gradient(180deg, #2b59c3, #1d3a8a); }
+.vo-btn.play.alt { background: linear-gradient(180deg, #8a5cf6, #5b21b6); }
+@keyframes rec-pulse { 50% { box-shadow: 0 5px 0 rgba(0,0,0,.45), 0 0 0 8px rgba(255,77,94,.25); } }
+
+/* 全員賽：不分 A / B，擂台只留舞台 */
+.arena.is-solo .lane, .arena.is-solo .vs { display: none; }
+.vo-wheel-box { position: relative; width: min(300px, 82vw); aspect-ratio: 1; margin: 4px auto 14px; }
+.vo-wheel-box[hidden] { display: none; }
+.vo-pointer { position: absolute; left: 50%; top: -10px; transform: translateX(-50%); z-index: 2;
+  color: var(--gold-hi); font-size: 1.9rem; line-height: 1; text-shadow: 0 3px 0 #7a5200, 0 0 10px rgba(0,0,0,.6); }
+.vo-wheel { position: absolute; inset: 0; border-radius: 50%; border: 6px solid var(--gold);
+  box-shadow: 0 0 0 4px #7a5200, 0 10px 30px rgba(0,0,0,.5), inset 0 0 0 3px rgba(255,255,255,.25); overflow: hidden; }
+.vo-wheel::after { content: ""; position: absolute; left: 50%; top: 50%; width: 16%; height: 16%; transform: translate(-50%, -50%);
+  border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--gold-hi), var(--gold) 50%, var(--gold-lo)); box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+.vo-wheel span { position: absolute; left: 50%; top: 50%; width: 50%; height: 0; transform-origin: 0 0; }
+.vo-wheel b { position: absolute; left: 22%; right: 6%; top: 0; transform: translateY(-50%); text-align: right;
+  font-size: clamp(.62rem, 3.2vw, .85rem); font-weight: 900; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0,0,0,.8); }
+.vo-rank { list-style: none; margin: 14px 0 0; padding: 0; text-align: left; }
+.vo-rank li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; margin-bottom: 6px; background: rgba(0,0,0,.25); }
+.vo-rank li.me { outline: 2px solid var(--gold); background: rgba(247,201,72,.12); }
+.vr-rank { width: 2em; text-align: center; font-family: var(--display); color: var(--gold); font-size: 1.05rem; }
+.vr-name { flex: 1; min-width: 0; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vr-name small { margin-left: 8px; color: var(--muted); font-weight: 600; }
+.vr-award { font-family: var(--display); color: var(--win); }
+.vr-play { width: 38px; height: 38px; border-radius: 50%; border: none; background: #2b59c3; color: #fff; font-size: .95rem; flex: none; }

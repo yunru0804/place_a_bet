@@ -1,6 +1,6 @@
 {# PK 擂台（所有手機小遊戲共用）。需要：round, pk_a, pk_b, my_side（'A'/'B'/None）, ws_query（玩家 token；管理員為空字串） #}
-<div class="arena game-{{ round.game }}{{ ' is-team' if round.team_a else '' }}" id="arena"
-     data-round="{{ round.id }}" data-side="{{ my_side or '' }}" data-q="{{ ws_query }}" data-game="{{ round.game }}"
+<div class="arena game-{{ round.game }}{{ ' is-team' if round.team_a else '' }}{{ ' is-solo' if round.game in SOLO_GAMES else '' }}" id="arena"
+     data-round="{{ round.id }}" data-uid="{{ user.id if user is defined and user else '' }}" data-side="{{ my_side or '' }}" data-q="{{ ws_query }}" data-game="{{ round.game }}"
      data-name-a="{{ pk_a.name if pk_a else round.option_a }}" data-name-b="{{ pk_b.name if pk_b else round.option_b }}">
   <div class="arena-head">
     <span class="arena-label" id="pk-label">{{ '⚡ 比賽中' if round.status == 'playing' else '等待主持人開始…' }}</span>
@@ -29,6 +29,7 @@
   <div class="pk-result" id="pk-result" hidden></div>
 </div>
 
+{% set vjs = vendor_js(round.game) %}{% if vjs %}<script>{{ vjs }}</script>{% endif %}
 <script>
 (() => {
   const el = document.getElementById('arena');
@@ -106,7 +107,7 @@
     stage.querySelectorAll('button').forEach(b => b.disabled = true);
     const r = $('pk-result');
     r.hidden = false;
-    r.innerHTML = m.result
+    r.innerHTML = m.solo ? (m.voided ? '本輪已作廢' : `🏁 比賽結束！<small>${esc(m.summary)}</small>`) : m.result
       ? `🏆 ${esc(NAMES[m.result])} 獲勝！<small>${esc(m.summary)}</small>`
       : (m.summary === '本輪已作廢' ? '本輪已作廢' : `🤝 平手！本輪作廢退還<small>${esc(m.summary)}</small>`);
     if (m.result) buzz([80, 40, 80], side && m.result !== side ? 'lose' : 'win');

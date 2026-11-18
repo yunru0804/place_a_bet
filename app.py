@@ -13,7 +13,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import casino
 import db
 from pk.hub import hub
-from pk.registry import GAME_INFO, PK_GAMES, TEAM_GAMES, client_js
+from pk.registry import GAME_INFO, NOBET_GAMES, PK_GAMES, SOLO_GAMES, TEAM_GAMES, client_js
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -85,10 +85,29 @@ def _manifest(name: str, short: str, start: str) -> JSONResponse:
 templates.env.globals["TEAMS"] = db.TEAMS
 templates.env.globals["PK_GAMES"] = PK_GAMES
 templates.env.globals["TEAM_GAMES"] = TEAM_GAMES
+templates.env.globals["SOLO_GAMES"] = SOLO_GAMES
+templates.env.globals["NOBET_GAMES"] = NOBET_GAMES
 templates.env.globals["GAME_INFO"] = GAME_INFO
 from pk.registry import SETTINGS as GAME_SETTINGS  # noqa: E402
 templates.env.globals["GAME_SETTINGS"] = GAME_SETTINGS
 templates.env.globals["GAME_CLIENT_JS"] = Markup(client_js())
+
+# 遊戲需要的第三方 JS（例如聲音模仿用的 Meyda）：一樣內嵌，不讓瀏覽器另外抓（會被 ngrok 警告頁擋）
+_vendor_cache: dict = {}
+
+
+def vendor_js(game: str | None) -> Markup:
+    from pk.registry import SPEC_BY_KEY
+    name = getattr(SPEC_BY_KEY.get(game), "VENDOR_JS", None)
+    if not name:
+        return Markup("")
+    if name not in _vendor_cache:
+        with open(os.path.join(BASE_DIR, "static", "vendor", name), encoding="utf-8") as f:
+            _vendor_cache[name] = Markup(f.read().replace("</", "<\\/"))
+    return _vendor_cache[name]
+
+
+templates.env.globals["vendor_js"] = vendor_js
 
 
 def redirect(url: str, msg: str | None = None, error: bool = False) -> RedirectResponse:
@@ -136,6 +155,9 @@ def _pk_ctx(conn, rnd, user_id: int | None) -> dict:
     """PK 盤需要的資料：投票候選人、我投給誰、兩位選手、我是哪一邊。"""
     if rnd is None or rnd["kind"] != "pk":
         return {"candidates": [], "my_vote": None, "pk_a": None, "pk_b": None, "my_side": None, "is_team": False}
+    if rnd["game"] in SOLO_GAMES:      # 全員賽：每個玩家都參加
+        return {"candidates": [], "my_vote": None, "is_team": False, "is_solo": True,
+                "pk_a": None, "pk_b": None, "my_side": db.my_side(conn, rnd, user_id)}
     if rnd["game"] in TEAM_GAMES:      # 團體賽：A / B 是隊伍
         return {
             "candidates": [], "my_vote": None, "is_team": True,
@@ -390,7 +412,8 @@ def _admin_action(request: Request, fn, *args, ok: str):
 def admin_create_round(request: Request, title: str = Form(""), kind: str = Form("normal"),
                        option_a: str = Form(""), option_b: str = Form(""), game: str = Form(""),
                        team_a: str = Form(""), team_b: str = Form(""), setting: str = Form("")):
-    ok = {"pk": "PK 盤已開始投票。", "team": "團體賽已建立，準備好就按「開始」。"}.get(kind, "已開盤。")
+    ok = {"pk": "PK 盤已開始投票。", "team": "團體賽已建立，準備好就按「開始」。",
+          "solo": "全員賽已建立，請大家先開好頁面（和麥克風），準備好就按「開始」。"}.get(kind, "已開盤。")
     return _admin_action(request, db.create_round, title, option_a, option_b, kind,
                          game or None, team_a or None, team_b or None, setting.strip() or None, ok=ok)
 
@@ -443,10 +466,47 @@ async def admin_void(request: Request, round_id: int):
     await hub.stop(round_id)
     with db.read() as conn:
         rnd = db.get_round(conn, round_id)
-    return redirect("/admin", "已作廢這場團體賽。" if rnd and rnd["team_a"] else "已作廢，所有下注退還。")
+    return redirect("/admin", "已作廢這一場（不會發點數）。" if rnd and rnd["game"] in NOBET_GAMES else "已作廢，所有下注退還。")
 
 
 # ======================= 即時連線（PK 觀戰 / 連打）=======================
+
+# ---------------- 聲音模仿：上傳錄音、播放錄音 ----------------
+MAX_WAV = 16000 * 2 * 11 + 44          # 16kHz 16-bit 單聲道，最多約 11 秒
+
+
+@app.post("/pk/voice")
+async def pk_voice(request: Request):
+    import base64
+    try:
+        body = await request.json()
+        token, round_id, role = body["t"], int(body["round"]), body["role"]
+        wav = base64.b64decode(body["wav"], validate=True)
+    except Exception:
+        return JSONResponse({"error": "資料格式不正確。"}, status_code=400)
+    with db.read() as conn:
+        user = db.get_user_by_token(conn, str(token))
+    if user is None:
+        return JSONResponse({"error": "連結無效。"}, status_code=403)
+    g = hub.game
+    if g is None or g.round_id != round_id or not hasattr(g, "submit"):
+        return JSONResponse({"error": "比賽已經結束了。"}, status_code=409)
+    if not (wav[:4] == b"RIFF" and wav[8:12] == b"WAVE" and len(wav) <= MAX_WAV):
+        return JSONResponse({"error": "錄音太長或格式不對。"}, status_code=400)
+    err = await g.submit(user["id"], role, wav, body.get("feats"))
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/pk/clip/{round_id}/{clip_id}")
+def pk_clip(round_id: int, clip_id: str):
+    g = hub.game
+    wav = getattr(g, "clips", {}).get(clip_id) if g is not None and g.round_id == round_id else None
+    if wav is None:
+        raise HTTPException(404, "錄音不存在或比賽已結束。")
+    return Response(wav, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):

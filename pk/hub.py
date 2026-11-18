@@ -48,6 +48,12 @@ class Hub:
     async def _run(self, game: BaseGame) -> None:
         try:
             await game.run()
+            if getattr(game, "solo", False):           # 全員賽：依名次發點數
+                awards, summary = game.awards()
+                ok = await asyncio.to_thread(db.finish_solo, game.round_id, awards)
+                await self.broadcast({"type": "end", "round": game.round_id, "result": None, "solo": True,
+                                      "summary": summary, "voided": not ok})
+                return
             result, sa, sb, summary = game.outcome()
             final = await asyncio.to_thread(db.finish_pk, game.round_id, sa, sb, result)
             await self.broadcast({"type": "end", "round": game.round_id, "result": final,

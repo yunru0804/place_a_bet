@@ -46,11 +46,11 @@
   </section>
 
 {% else %}
-  {% set badges = {'voting': '🗳️ 投票中', 'open': '● 開放下注', 'locked': (GAME_INFO[round.game][0].split(' ')[0] ~ ' 準備開賽' if is_team else '🔒 停止下注'), 'playing': '⚡ PK 進行中'} %}
+  {% set badges = {'voting': '🗳️ 投票中', 'open': '● 開放下注', 'locked': (GAME_INFO[round.game][0].split(' ')[0] ~ ' 準備開賽' if is_team or is_solo else '🔒 停止下注'), 'playing': '⚡ PK 進行中'} %}
   <section class="table-card">
     <div class="round-head">
       <span class="badge {{ round.status }}">{{ badges[round.status] }}</span>
-      <span class="round-no">{% if pk %}<span class="pk-tag">{{ '團體' if is_team else 'PK' }}</span> {% endif %}ROUND {{ round.id }}</span>
+      <span class="round-no">{% if pk %}<span class="pk-tag">{{ '全員' if is_solo else ('團體' if is_team else 'PK') }}</span> {% endif %}ROUND {{ round.id }}</span>
     </div>
     <h2 class="question">{{ round.title }}</h2>
     {% if pk %}<p class="game-desc-box">{{ GAME_INFO[round.game][1] }}</p>{% endif %}
@@ -68,7 +68,9 @@
 
     {% else %}
       {% if my_side %}
-        {% if is_team %}
+        {% if is_solo %}
+          <div class="challenger">🎙 全員參加！先開好麥克風<small>輪盤抽出題者，其他人模仿，依名次拿點數</small></div>
+        {% elif is_team %}
           {% set cheer = {'tug': '全隊一起拉！', 'jump': '全隊一起跳！', 'shake': '全隊一起搖！'} %}
           <div class="challenger">{{ GAME_INFO[round.game][0].split(' ')[0] }} 你的隊伍上場！{{ cheer.get(round.game, '全隊一起上！') }}<small>贏了每人 +500 點</small></div>
         {% else %}

@@ -19,6 +19,7 @@
         <label><input type="radio" name="kind" value="normal" checked><span>一般盤<small>自訂 A / B 選項</small></span></label>
         <label><input type="radio" name="kind" value="pk"><span>⚡ PK 盤<small>投票選 2 人對決</small></span></label>
         <label><input type="radio" name="kind" value="team"><span>🪢 團體賽<small>兩隊全員對戰</small></span></label>
+        <label><input type="radio" name="kind" value="solo"><span>🎙 全員賽<small>每個人都參加・依名次給點</small></span></label>
       </div>
       <div id="normal-fields">
         <label class="field">題目<input name="title" required placeholder="例如：第一場誰會贏？"></label>
@@ -53,6 +54,15 @@
         </div>
         <p class="muted small">團體賽不開放下注，建立後直接按「開始」。每一場的勝隊每人自動 +{{ team_prize }} 點，輸的不扣點。卡住可按作廢。</p>
       </div>
+      <div id="solo-fields" hidden>
+        <label class="field">全員賽遊戲
+          <select name="game" id="solo-game" disabled>
+            {% for key, (label, desc) in SOLO_GAMES.items() %}<option value="{{ key }}" data-desc="{{ desc }}" data-setting="{{ GAME_SETTINGS.get(key) | tojson | forceescape }}">{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <p class="muted small" id="solo-game-desc"></p>
+        <p class="muted small">全員賽不開放下注，建立後請大家先打開自己的頁面，再按「開始」。點數會依名次直接發放，可在「發放點數」撤銷。</p>
+      </div>
       <label class="field" id="setting-field" hidden><span id="setting-label">關卡數</span>
         <input name="setting" id="setting-input" type="number" inputmode="numeric" step="1">
         <small class="muted" id="setting-hint"></small>
@@ -60,10 +70,10 @@
       <button type="submit" class="primary" id="newround-btn">開盤</button>
     </form>
   {% else %}
-    {% set labels = {'voting': '🗳️ 投票中', 'open': '開盤中', 'locked': (GAME_INFO[round.game][0].split(' ')[0] ~ ' 準備開賽' if round.team_a else '已關盤'), 'playing': '⚡ 比賽中'} %}
+    {% set labels = {'voting': '🗳️ 投票中', 'open': '開盤中', 'locked': (GAME_INFO[round.game][0].split(' ')[0] ~ ' 準備開賽' if round.game in NOBET_GAMES else '已關盤'), 'playing': '⚡ 比賽中'} %}
     <div class="row-between">
       <span class="badge {{ round.status }}">{{ labels[round.status] }}</span>
-      <span class="muted small">{% if round.kind == 'pk' %}<span class="pk-tag">{{ '團體' if round.game in GAME_INFO and round.team_a else 'PK' }}</span> {% endif %}第 {{ round.id }} 輪 · {{ round.created_at }}</span>
+      <span class="muted small">{% if round.kind == 'pk' %}<span class="pk-tag">{{ '全員' if round.game in SOLO_GAMES else ('團體' if round.team_a else 'PK') }}</span> {% endif %}第 {{ round.id }} 輪 · {{ round.created_at }}</span>
     </div>
     <h2>{{ round.title }}</h2>
 
@@ -72,11 +82,11 @@
       {% set ws_query = '' %}{% set my_side = None %}
       {% include "_pk_arena.html" %}
       {% if round.status == 'playing' and not game_alive %}
-        <p class="flash-inline">⚠️ 比賽連線已中斷（可能是伺服器重啟），請按「作廢」{{ '後重新開一場' if round.team_a else '退還下注' }}。</p>
+        <p class="flash-inline">⚠️ 比賽連線已中斷（可能是伺服器重啟），請按「作廢」{{ '後重新開一場' if round.game in NOBET_GAMES else '退還下注' }}。</p>
       {% endif %}
     {% endif %}
 
-    {% if not round.team_a %}<div id="live">{% include "_live.html" %}</div>{% endif %}
+    {% if round.game not in NOBET_GAMES %}<div id="live">{% include "_live.html" %}</div>{% endif %}
 
     <div class="actions">
       {% if round.status == 'voting' %}
@@ -102,10 +112,10 @@
         </form>
       {% elif round.status == 'locked' and round.kind == 'pk' %}
         <form method="post" action="/admin/rounds/{{ round.id }}/start"
-              onsubmit="return confirm('{{ '確定開始？倒數 3 秒後開賽，勝隊每人自動 +' ~ team_prize ~ ' 點。' if round.team_a else '確定開始？倒數 3 秒後開賽，結束後自動結算。' }}')">
+              onsubmit="return confirm('{{ '確定開始？輪盤會從在線的玩家抽出題者，結束後依名次自動發點數。' if round.game in SOLO_GAMES else ('確定開始？倒數 3 秒後開賽，勝隊每人自動 +' ~ team_prize ~ ' 點。' if round.team_a else '確定開始？倒數 3 秒後開賽，結束後自動結算。') }}')">
           <button type="submit" class="primary">開始</button>
         </form>
-        {% if not round.team_a %}
+        {% if round.game not in NOBET_GAMES %}
         <form method="post" action="/admin/rounds/{{ round.id }}/reopen">
           <button type="submit">重新開盤</button>
         </form>
@@ -126,7 +136,7 @@
         </form>
       {% endif %}
       <form method="post" action="/admin/rounds/{{ round.id }}/void"
-            onsubmit="return confirm('{{ '確定作廢這一場？不會發任何點數。' if round.team_a else '確定作廢這一輪？所有下注會全額退還。' }}')">
+            onsubmit="return confirm('{{ '確定作廢這一場？不會發任何點數。' if round.game in NOBET_GAMES else '確定作廢這一輪？所有下注會全額退還。' }}')">
         <button type="submit" class="danger">作廢</button>
       </form>
     </div>
@@ -287,6 +297,7 @@
       <tr>
         <td>{{ r.id }}</td><td>{{ r.title }}</td>
         <td>{% if r.status == 'void' %}<span class="muted">作廢</span>
+            {% elif r.game in SOLO_GAMES %}🏁 全員賽
             {% elif r.team_a %}🏆 {{ r.option_a if r.result == 'A' else r.option_b }}
             {% else %}{{ r.result }}（{{ r.option_a if r.result == 'A' else r.option_b }}）{% endif %}</td>
         <td class="num">{{ r.total_a }} / {{ r.total_b }}</td>
@@ -317,7 +328,11 @@
   if (nr) {
     const gs = document.getElementById('game-select');
     const sync = () => {
-      const f = nr.elements, kind = f.kind.value, pk = kind === 'pk', team = kind === 'team';
+      const f = nr.elements, kind = f.kind.value, pk = kind === 'pk', team = kind === 'team', solo = kind === 'solo';
+      const sg = document.getElementById('solo-game');
+      document.getElementById('solo-fields').hidden = !solo;
+      sg.disabled = !solo;
+      document.getElementById('solo-game-desc').textContent = sg.selectedOptions[0]?.dataset.desc || '';
       document.getElementById('normal-fields').hidden = kind !== 'normal';
       document.getElementById('pk-fields').hidden = !pk;
       document.getElementById('team-fields').hidden = !team;
@@ -325,12 +340,12 @@
       const tg = document.getElementById('team-game');
       tg.disabled = !team;
       f.title.required = f.option_a.required = f.option_b.required = kind === 'normal';
-      document.getElementById('newround-btn').textContent = team ? '建立團體賽' : '開盤';
+      document.getElementById('newround-btn').textContent = team ? '建立團體賽' : (solo ? '建立全員賽' : '開盤');
       document.getElementById('game-desc').textContent = gs.selectedOptions[0]?.dataset.desc || '';
       const td = document.getElementById('team-game-desc');
       if (td) td.textContent = tg.selectedOptions[0]?.dataset.desc || '';
       // 關卡數／遊玩時間：依選到的遊戲換標籤、範圍與預設值
-      const opt = pk ? gs.selectedOptions[0] : (team ? tg.selectedOptions[0] : null);
+      const opt = pk ? gs.selectedOptions[0] : (team ? tg.selectedOptions[0] : (solo ? sg.selectedOptions[0] : null));
       const st = opt ? JSON.parse(opt.dataset.setting || 'null') : null;
       const sf = document.getElementById('setting-field'), si = document.getElementById('setting-input');
       sf.hidden = !st; si.disabled = !st;
@@ -344,6 +359,7 @@
     nr.querySelectorAll('input[name=kind]').forEach(r => r.addEventListener('change', sync));
     gs.addEventListener('change', sync);
     document.getElementById('team-game').addEventListener('change', sync);
+    document.getElementById('solo-game').addEventListener('change', sync);
     sync();
   }
   document.querySelectorAll('.copy').forEach(b => b.addEventListener('click', async () => {

@@ -27,9 +27,12 @@ def _load():
 
 SPECS = _load()
 GAMES = {c.key: c for c in SPECS if getattr(c, "engine", True) and issubclass(c, BaseGame)}
-PK_GAMES = {c.key: (c.title, c.description) for c in SPECS if not getattr(c, "team", False)}
+PK_GAMES = {c.key: (c.title, c.description) for c in SPECS
+            if not getattr(c, "team", False) and not getattr(c, "solo", False)}
 TEAM_GAMES = {c.key: (c.title, c.description) for c in SPECS if getattr(c, "team", False)}
-GAME_INFO = {**PK_GAMES, **TEAM_GAMES}
+SOLO_GAMES = {c.key: (c.title, c.description) for c in SPECS if getattr(c, "solo", False)}   # 全員賽
+GAME_INFO = {**PK_GAMES, **TEAM_GAMES, **SOLO_GAMES}
+NOBET_GAMES = {**TEAM_GAMES, **SOLO_GAMES}      # 不開放下注的（團體賽、全員賽）
 # 可以在開盤時調整關卡數／時間的遊戲：{key: SETTING}
 SETTINGS = {c.key: c.SETTING for c in SPECS if getattr(c, "SETTING", None)}
 SPEC_BY_KEY = {c.key: c for c in SPECS}

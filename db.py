@@ -29,12 +29,12 @@ TEAMS = {"red": "紅隊", "yellow": "黃隊", "green": "綠隊", "blue": "藍隊
 
 # 遊戲名稱與說明在 pk/games/ 各檔；延遲轉接，避免啟動時跟遊戲模組互抓。
 def _catalog(name):
-    from pk.registry import GAME_INFO, PK_GAMES, TEAM_GAMES
-    return {"PK_GAMES": PK_GAMES, "TEAM_GAMES": TEAM_GAMES, "GAME_INFO": GAME_INFO}[name]
+    from pk.registry import GAME_INFO, PK_GAMES, SOLO_GAMES, TEAM_GAMES
+    return {"PK_GAMES": PK_GAMES, "TEAM_GAMES": TEAM_GAMES, "SOLO_GAMES": SOLO_GAMES, "GAME_INFO": GAME_INFO}[name]
 
 
 def __getattr__(name):
-    if name in ("PK_GAMES", "TEAM_GAMES", "GAME_INFO"):
+    if name in ("PK_GAMES", "TEAM_GAMES", "SOLO_GAMES", "GAME_INFO"):
         return _catalog(name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -395,6 +395,8 @@ def my_side(conn, rnd, user_id: int | None) -> str | None:
     """這位玩家在這一輪是 A 方、B 方，還是旁觀（None）。"""
     if rnd is None or rnd["kind"] != "pk" or user_id is None:
         return None
+    if rnd["game"] in _catalog("SOLO_GAMES"):          # 全員賽：每個玩家都是參賽者
+        return "S" if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() else None
     if rnd["game"] in _catalog("TEAM_GAMES"):
         row = conn.execute("SELECT team FROM users WHERE id = ?", (user_id,)).fetchone()
         team = row["team"] if row else None
@@ -430,8 +432,20 @@ def create_round(title: str, option_a: str, option_b: str, kind: str = "normal",
                  game: str | None = None, team_a: str | None = None, team_b: str | None = None,
                  setting=None) -> None:
     title, option_a, option_b = title.strip(), option_a.strip(), option_b.strip()
-    pk_games, team_games = _catalog("PK_GAMES"), _catalog("TEAM_GAMES")
-    if kind == "team":
+    pk_games, team_games, solo_games = _catalog("PK_GAMES"), _catalog("TEAM_GAMES"), _catalog("SOLO_GAMES")
+    if kind == "solo":
+        game = game or next(iter(solo_games), None)
+        if game not in solo_games:
+            raise BetError("請選擇全員賽遊戲。")
+        with read() as conn:
+            if len(users(conn)) < 2:
+                raise BetError("至少要有 2 位玩家才能玩全員賽。")
+        setting, suffix = _game_setting(game, setting)
+        title = solo_games[game][0] + suffix
+        option_a = option_b = "全員"
+        team_a = team_b = None
+        kind, status = "pk", "locked"   # 全員賽不投票、不下注，直接等主持人開始
+    elif kind == "team":
         game = game or next(iter(team_games), None)
         if game not in team_games:
             raise BetError("請選擇團體賽遊戲。")
@@ -545,6 +559,35 @@ def finish_pk(round_id: int, score_a: int, score_b: int, result: str | None) -> 
     return result
 
 
+def grant(rows: list[tuple[int, int, str]], target: str) -> None:
+    """直接發點數給多位玩家（同一批，可在後台整批撤銷）。rows = [(user_id, 點數, 原因)]"""
+    if not rows:
+        return
+    batch = secrets.token_hex(6)
+    with write() as conn:
+        conn.executemany(
+            "INSERT INTO adjustments (user_id, delta, reason, target, batch) VALUES (?, ?, ?, ?, ?)",
+            [(uid, delta, reason, target, batch) for uid, delta, reason in rows],
+        )
+
+
+def finish_solo(round_id: int, awards: list[tuple[int, int, str]]) -> bool:
+    """全員賽結束：標記結算並依名次發點數。期間被作廢就不發，回傳 False。"""
+    with write() as conn:
+        rnd = get_round(conn, round_id)
+        if rnd is None or rnd["status"] != "playing":
+            return False
+        conn.execute("UPDATE rounds SET status = 'settled', settled_at = datetime('now', 'localtime') WHERE id = ?",
+                     (round_id,))
+        if awards:
+            batch = secrets.token_hex(6)
+            conn.executemany(
+                "INSERT INTO adjustments (user_id, delta, reason, target, batch) VALUES (?, ?, ?, ?, ?)",
+                [(uid, delta, reason, "全員賽", batch) for uid, delta, reason in awards],
+            )
+    return True
+
+
 def _transition(round_id: int, frm: tuple[str, ...], sql: str, params: tuple, err: str):
     with write() as conn:
         rnd = get_round(conn, round_id)
@@ -562,8 +605,8 @@ def lock_round(round_id: int) -> None:
 def reopen_round(round_id: int) -> None:
     with read() as conn:
         rnd = get_round(conn, round_id)
-    if rnd is not None and rnd["game"] in _catalog("TEAM_GAMES"):
-        raise BetError("團體賽不開放下注。")
+    if rnd is not None and (rnd["game"] in _catalog("TEAM_GAMES") or rnd["game"] in _catalog("SOLO_GAMES")):
+        raise BetError("團體賽、全員賽不開放下注。")
     _transition(round_id, ("locked",),
                 "UPDATE rounds SET status = 'open', closed_at = NULL WHERE id = ?",
                 (round_id,), "這一輪不是已關盤狀態，無法重新開盤。")

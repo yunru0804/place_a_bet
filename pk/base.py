@@ -124,6 +124,32 @@ class TeamGame(BaseGame):
         self.size = {side: max(1, len(ms)) for side, ms in members.items()}
 
 
+class SoloGame(BaseGame):
+    """全員賽：所有玩家都參加（不分兩邊、不開放下注），結束時依名次直接發點數。
+    sides 裡每個人都是 'S'。子類別要實作 awards() → (發放清單 [(uid, 點數, 原因)], 摘要文字)。"""
+
+    solo = True
+
+    def __init__(self, rnd, hub):
+        super().__init__(rnd, hub)
+        import db
+        with db.read() as conn:
+            users = db.users(conn)
+        self.sides = {u["id"]: "S" for u in users}
+        self.names = {u["id"]: u["name"] for u in users}
+
+    def online(self) -> list[int]:
+        """目前有連線（開著頁面）的參賽者。"""
+        on = {uid for uid in self.hub.clients.values() if uid in self.sides}
+        return [u for u in self.sides if u in on]
+
+    def awards(self) -> tuple[list[tuple[int, int, str]], str]:
+        raise NotImplementedError
+
+    def outcome(self):
+        return None, 0, 0, ""
+
+
 def winner(a, b, higher_wins=True):
     if a == b:
         return None
