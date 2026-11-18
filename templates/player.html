@@ -69,7 +69,7 @@
     {% else %}
       {% if my_side %}
         {% if is_solo %}
-          <div class="challenger">🎙 全員參加！先開好麥克風<small>輪盤抽出題者，其他人模仿，依名次拿點數</small></div>
+          <div class="challenger">🎙 全員參加！</div>
         {% elif is_team %}
           {% set cheer = {'tug': '全隊一起拉！', 'jump': '全隊一起跳！', 'shake': '全隊一起搖！'} %}
           <div class="challenger">{{ GAME_INFO[round.game][0].split(' ')[0] }} 你的隊伍上場！{{ cheer.get(round.game, '全隊一起上！') }}<small>贏了每人 +500 點</small></div>

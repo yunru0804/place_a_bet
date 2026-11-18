@@ -342,6 +342,7 @@ def admin_page(request: Request):
             "team_prize": db.TEAM_MATCH_PRIZE,
             "base_url": str(request.base_url).rstrip("/"),
             "game_alive": hub.game is not None,
+            "game_skip": hub.game is not None and hasattr(hub.game, "skip"),
             "msg": request.query_params.get("msg"),
             "err": request.query_params.get("err"),
         }
@@ -439,6 +440,17 @@ async def admin_start_pk(request: Request, round_id: int):
         return redirect("/admin", str(e), error=True)
     await hub.start(rnd)
     return redirect("/admin", "已開始！")
+
+
+@app.post("/admin/rounds/{round_id}/skip")
+async def admin_skip(request: Request, round_id: int):
+    """全員賽：跳過目前的等待（例如等出題、等大家模仿、看排行榜），直接進下一步。"""
+    _require_admin(request)
+    g = hub.game
+    if g is None or g.round_id != round_id or not hasattr(g, "skip"):
+        return redirect("/admin", "這場比賽不能跳過。", error=True)
+    g.skip()
+    return redirect("/admin", "已跳到下一步。")
 
 
 @app.post("/admin/rounds/{round_id}/lock")

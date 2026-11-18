@@ -135,6 +135,11 @@
           <button type="submit">重新開盤</button>
         </form>
       {% endif %}
+      {% if round.status == 'playing' and game_skip %}
+        <form method="post" action="/admin/rounds/{{ round.id }}/skip">
+          <button type="submit" class="primary">⏭ 跳過等待</button>
+        </form>
+      {% endif %}
       <form method="post" action="/admin/rounds/{{ round.id }}/void"
             onsubmit="return confirm('{{ '確定作廢這一場？不會發任何點數。' if round.game in NOBET_GAMES else '確定作廢這一輪？所有下注會全額退還。' }}')">
         <button type="submit" class="danger">作廢</button>

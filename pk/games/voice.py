@@ -1,7 +1,8 @@
 """全員賽：聲音模仿大賽。
 
-流程：輪盤抽一位出題者 → 出題者錄一段聲音（送出就 +1500）→ 其他人全部模仿 → 依模仿度排名發點數
+流程：輪盤抽一位出題者 → 出題者錄一段聲音 → 所有人（出題者也要）模仿這段聲音 → 依模仿度排名發點數
 （第 1 名 1500、第 2 名 1400…每名少 100，最少 100；同分同名次同點數）。
+主持人可以按「跳過等待」直接進到下一步。
 
 相似度（前端 Meyda 抽特徵、伺服器比對）：
 1. 手機把錄音轉成 16kHz，每 512 點取一格 MFCC（第 1～12 維；第 0 維是音量，丟掉），頭尾靜音裁掉。
@@ -84,14 +85,12 @@ def check_feats(feats) -> list | None:
 class VoiceGame(SoloGame):
     key = "voice"
     title = "🎙 聲音模仿大賽"
-    description = ("輪盤抽一位出題者錄一段聲音（台詞、怪聲、唱一句都行），出題就 +1500！"
-                   "其他人全部模仿，依模仿度排名：第 1 名 +1500、第 2 名 +1400…每名少 100。")
+    description = "輪盤抽一人出題，所有人（含出題者）模仿那段聲音，越像名次越前：第 1 名 +1500，每名少 100。"
     order = 10
     VENDOR_JS = "meyda.min.js"
     CLIP_SEC = 5
     SETTING = {"attr": "CLIP_SEC", "label": "錄音長度（秒）", "fmt": "錄 {} 秒", "default": 5, "min": 3, "max": 10}
 
-    QUESTIONER_PRIZE = 1500
     FIRST_PRIZE = 1500
     STEP = 100
     MIN_PRIZE = 100
@@ -99,6 +98,7 @@ class VoiceGame(SoloGame):
     RECORD_TIME = 25.0     # 出題時間
     IMITATE_TIME = 45.0    # 模仿時間（可以先重複聽題目）
     REVEAL = 30.0          # 公布排名＋大家重聽
+    IMIT_EXTRA = 1.5       # 模仿最長 = 題目長度 + 這麼多秒（不超過 CLIP_SEC）
     GRACE = 4.0            # 時間到後再等上傳
     MAX_SPINS = 3          # 抽到的人沒出題就重抽，最多抽幾次
 
@@ -113,6 +113,17 @@ class VoiceGame(SoloGame):
         self.imits: dict[int, dict] = {}          # uid -> {clip, score}（pending = 計算中）
         self.clips: dict[str, bytes] = {}
         self.ranking: list[dict] = []
+        self.skipping = False
+
+    def skip(self) -> None:
+        """主持人按「跳過等待」：結束目前這個階段。"""
+        self.skipping = True
+        self.mark()
+
+    async def _stage(self, phase: str, seconds: float, done=lambda: False) -> None:
+        self.skipping = False
+        await self.set_phase(phase, seconds)
+        await self.wait(lambda: self.skipping or done(), seconds + self.GRACE)
 
     def _clip(self, wav: bytes) -> str:
         cid = secrets.token_urlsafe(8)
@@ -121,7 +132,7 @@ class VoiceGame(SoloGame):
 
     def public(self):
         d = {
-            "clip_sec": self.CLIP_SEC, "prize": self.QUESTIONER_PRIZE,
+            "clip_sec": self.CLIP_SEC, "imit_sec": self.imit_sec(),
             "first": self.FIRST_PRIZE, "step": self.STEP,
             "wheel": [self.names[u] for u in self.wheel], "pick": self.pick, "spin": self.spins,
             "questioner": self.questioner,
@@ -151,12 +162,9 @@ class VoiceGame(SoloGame):
             if self.prompt is not None:
                 return "題目已經送出了。"
             self.prompt = {"clip": self._clip(wav), "feats": feats}
-            await asyncio.to_thread(db.grant, [(uid, self.QUESTIONER_PRIZE, f"{self.title} 出題獎")], self.names[uid])
         elif role == "imitate":
             if self.phase != "imitate":
                 return "現在不是模仿時間。"
-            if uid == self.questioner:
-                return "出題的人不用模仿自己喔。"
             if uid in self.imits:
                 return "只能模仿一次喔。"
             self.imits[uid] = {"pending": True}
@@ -166,6 +174,13 @@ class VoiceGame(SoloGame):
             return "動作不正確。"
         self.mark()
         return None
+
+    def imit_sec(self) -> int:
+        """模仿可以錄多久：題目長度 + 1.5 秒（題目只有 3 秒就不用等滿 10 秒）。"""
+        if not self.prompt:
+            return self.CLIP_SEC
+        sec = len(self.prompt["feats"]) * 512 / 16000 + self.IMIT_EXTRA
+        return max(2, min(self.CLIP_SEC, math.ceil(sec)))
 
     def _all_done(self) -> bool:
         return all(u in self.imits and not self.imits[u].get("pending") for u in self.expected)
@@ -196,16 +211,13 @@ class VoiceGame(SoloGame):
             self.spins += 1
             await self.set_phase("roulette", self.SPIN)
             await asyncio.sleep(self.SPIN + 0.6)
-            await self.set_phase("record", self.RECORD_TIME)
-            await self.wait(lambda: self.prompt is not None, self.RECORD_TIME + self.GRACE)
+            await self._stage("record", self.RECORD_TIME, lambda: self.prompt is not None)
         if self.prompt is not None:
             on = set(self.online())
-            self.expected = [u for u in self.sides if u != self.questioner and u in on]
-            await self.set_phase("imitate", self.IMITATE_TIME)
-            await self.wait(self._all_done, self.IMITATE_TIME + self.GRACE)
+            self.expected = [u for u in self.sides if u in on or u == self.questioner]   # 出題者也要模仿
+            await self._stage("imitate", self.IMITATE_TIME, self._all_done)
         self._rank()
-        await self.set_phase("reveal", self.REVEAL)
-        await asyncio.sleep(self.REVEAL)
+        await self._stage("reveal", self.REVEAL)
 
     def awards(self):
         if self.prompt is None:
@@ -278,12 +290,16 @@ class VoiceGame(SoloGame):
     const src = voCtx.createMediaStreamSource(voStream);
     const proc = voCtx.createScriptProcessor(4096, 1, 1);
     const chunks = [];
-    let done = false, tm = null;
+    let done = false, tm = null, heard = false, quiet = 0;
     proc.onaudioprocess = e => {
       const d = e.inputBuffer.getChannelData(0);
       chunks.push(new Float32Array(d));
       let a = 0; for (let i = 0; i < d.length; i += 8) a += d[i] * d[i];
-      const lv = $('volevel'); if (lv) lv.style.width = Math.min(100, Math.sqrt(a / (d.length / 8)) * 400) + '%';
+      const rms = Math.sqrt(a / (d.length / 8));
+      const lv = $('volevel'); if (lv) lv.style.width = Math.min(100, rms * 400) + '%';
+      // 講完自動停：聽到聲音之後，連續安靜 1.2 秒就結束（不用等滿秒數）
+      if (rms > 0.03) { heard = true; quiet = 0; }
+      else if (heard && (quiet += d.length / voCtx.sampleRate) > 1.2) stop();
     };
     src.connect(proc); proc.connect(voCtx.destination);
     const stop = () => {
@@ -305,7 +321,7 @@ class VoiceGame(SoloGame):
       voBusy = false; voMsg = '麥克風打不開：請允許使用麥克風，或關掉分頁重開連結'; voRender(); return;
     }
     buzz(20, 'blip');
-    const pending = voRecord((st && st.clip_sec) || 5);
+    const pending = voRecord(role === 'imitate' ? (st.imit_sec || st.clip_sec || 5) : ((st && st.clip_sec) || 5));
     voRender();
     const pcm = await pending;
     voMsg = '分析中…'; voRender();
@@ -324,8 +340,8 @@ class VoiceGame(SoloGame):
       const j = await r.json().catch(() => ({}));
       if (r.ok && !j.error) {
         voSent[role] = true;
-        if (role === 'prompt') { voMsg = `題目送出 ✓ 出題獎 +${st.prize} 已入帳！`; buzz([50, 30, 50], 'win'); if (window.fx) fx.celebrate('big'); }
-        else { voMsg = '模仿送出 ✓ 等結果揭曉…'; buzz(30, 'coin'); }
+        voMsg = role === 'prompt' ? '題目送出 ✓' : '送出 ✓';
+        buzz(30, 'coin');
       } else voMsg = j.error || '上傳失敗，再試一次';
     } catch (e) { voMsg = '上傳失敗，再試一次'; }
     voBusy = false; voRender();
@@ -409,30 +425,28 @@ class VoiceGame(SoloGame):
       if (voRec) {
         btns = voBtn('stop', '⏹ 錄好了', 'rec');
       } else if (s.phase === 'roulette') {
-        role = s.spin > 1 ? '剛剛抽到的人沒出題，重抽！' : '🎡 輪盤轉轉轉…誰要出題？';
+        role = s.spin > 1 ? '沒出題，重抽！' : '誰要出題？';
       } else if (s.phase === 'record') {
         if (iAmQ) {
-          role = `🎯 你被抽中出題！錄一段 ${sec} 秒內的聲音：台詞、怪聲、唱一句都可以。送出立刻 +${s.prize}`;
+          role = voSent.prompt ? '' : `🎯 你出題！錄一句台詞、怪聲或歌（${sec} 秒內，講完會自動停）`;
           btns = voSent.prompt ? '' : voBtn('prompt', '🔴 開始錄題目', 'big', voBusy ? 'disabled' : '');
-        } else role = `🎯 <b>${qn}</b> 出題中…準備好模仿！`;
+        } else role = `🎯 <b>${qn}</b> 出題中…`;
       } else if (s.phase === 'imitate') {
-        if (iAmQ) role = `✅ 題目已送出，出題獎 <b>+${s.prize}</b> 已入帳！<br>大家正在模仿你的聲音…（${s.done_n}/${s.need}）`;
-        else if (side) {
-          role = voSent.imitate ? `等其他人模仿…（${s.done_n}/${s.need}）`
-            : `先聽 <b>${qn}</b> 的題目，再模仿一次（只有一次機會、最多 ${sec} 秒）`;
+        if (side) {
+          role = voSent.imitate ? `等其他人…（${s.done_n}/${s.need}）`
+            : (iAmQ ? '換你模仿自己的題目！只有一次機會' : '聽完題目再模仿，只有一次機會');
           btns = voBtn('play', '▶ 聽題目', 'play', `data-clip="${s.prompt_clip || ''}"`) +
                  (voSent.imitate ? '' : voBtn('imitate', '🔴 開始模仿', 'big', voBusy ? 'disabled' : ''));
         } else {
-          role = `全員模仿中…（${s.done_n}/${s.need}）`;
+          role = `模仿中…（${s.done_n}/${s.need}）`;
           btns = voBtn('play', `▶ ${qn} 的題目`, 'play', `data-clip="${s.prompt_clip || ''}"`);
         }
       } else if (s.phase === 'reveal') {
         const me = (s.ranking || []).find(r => r.uid === VO_ME);
         role = !s.prompt_ok ? '沒有人出題，本輪結束'
-          : iAmQ ? `你是出題者，出題獎 +${s.prize}！`
-          : me ? `你第 <b>${me.rank}</b> 名（${me.score} 分）<b>+${me.award}</b>`
-          : side ? '你這輪沒有模仿到 😢' : '';
-        if (s.prompt_clip) btns = voBtn('play', `▶ 原音：${qn} 出的題`, 'play', `data-clip="${s.prompt_clip}"`);
+          : me ? `你第 <b>${me.rank}</b> 名 <b>+${me.award}</b>`
+          : side ? '你這輪沒有模仿 😢' : '';
+        if (s.prompt_clip) btns = voBtn('play', `▶ 原音（${qn}）`, 'play', `data-clip="${s.prompt_clip}"`);
         const medal = r => ['🥇', '🥈', '🥉'][r - 1] || `${r}`;
         rank = (s.ranking || []).map(r =>
           `<li class="${r.uid === VO_ME ? 'me' : ''}"><span class="vr-rank">${medal(r.rank)}</span>` +
@@ -440,9 +454,9 @@ class VoiceGame(SoloGame):
           `<span class="vr-award">+${r.award}</span>` +
           `<button type="button" class="vr-play" data-act="play" data-clip="${r.clip}">▶</button></li>`).join('');
       } else if (side) {
-        role = `全員參加！輪盤會抽出一位出題者（+${(s.prize || 1500)}），其他人模仿，依名次發點數。<br>先開麥克風（iPhone 要按「允許」）`;
+        role = voStream ? '' : '先開麥克風（iPhone 選「允許」）';
         btns = voStream ? '' : voBtn('mic', '🎤 開啟麥克風', 'big');
-        if (voStream && !voMsg) voMsg = '麥克風 OK ✓ 等開始';
+        if (voStream && !voMsg) voMsg = '麥克風 OK ✓ 等主持人開始';
       } else role = '準備中…';
       const view = [role, btns, voMsg, rank].join('|');
       if (view === voView) return;
