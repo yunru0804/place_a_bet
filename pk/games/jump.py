@@ -38,7 +38,7 @@ class JumpGame(TeamGame):
     jmShown = key;
     $('jr').classList.toggle('go', on);
     $('jr').classList.toggle('wait', !on);
-    $('jrkid').textContent = on ? '🤸' : '🧍';
+    if ($('jrkid')) $('jrkid').textContent = on ? '🤸' : '🧍';
     const hint = $('jrhint'), b = $('jrbtn');
     if (side && used) hint.textContent = '跳過！等下一拍';
     else hint.textContent = on ? (jmOn ? '跳！（往上一頓）' : '跳！') : '等繩子過來…';
@@ -53,6 +53,7 @@ class JumpGame(TeamGame):
     if (GAME !== 'jump' || !st || st.phase !== 'play' || jumpedBeat === st.beat) return;
     jumpedBeat = st.beat;
     send({a: 'jump'}); buzz(18, 'jump');
+    ME.hop();                                          // 有跳才讓角色跳一次
     const b = $('jrbtn'); if (b) pop(b);
     G.jump.render(st);
   };
@@ -104,6 +105,15 @@ class JumpGame(TeamGame):
           '</div>' +
           '<div class="jr-hint" id="jrhint"></div>' +
           (side ? `<button type="button" class="tap-btn jr-btn ${$('panel-' + side).className.match(/team-\w+/)?.[0] || ''}" id="jrbtn">準備…</button>` : '');
+        if (CROWD.length) {                             // 大螢幕：兩隊所有角色站進繩圈裡一起跳
+          $('jr').appendChild($('crowd'));
+          $('jrkid').remove();
+          $('jr').classList.add('has-crowd');
+        }
+        if (ME.on) {                                    // 有角色：用自己的角色取代 emoji 小人
+          $('jrkid').replaceWith(ME.el.parentNode);
+          $('jr').classList.add('has-me');
+        }
         if (side) {
           const jb = $('jrbtn');
           // iOS 只把 click 當成使用者手勢，權限一定要在 click 裡要
@@ -203,6 +213,7 @@ class JumpGame(TeamGame):
         if uid in self.jumped or now > self.beat_end:
             return
         self.jumped.add(uid)
+        self.count_act(uid)                     # 太早跳也算有跳（角色要跳起來）
         window_start = self.beat_end - self.period * self.WINDOW
         if now < window_start:
             self.combo_user[uid] = 0

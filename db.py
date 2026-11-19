@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS bets (
 """
 
 BALANCE_SQL = f"""
-SELECT u.id, u.name, u.token, u.team,
+SELECT u.id, u.name, u.token, u.team, u.avatar,
        {INITIAL_POINTS} + COALESCE(SUM(CASE
            WHEN r.status = 'settled' AND b.choice = r.result THEN  b.amount
            WHEN r.status = 'settled'                         THEN -b.amount
@@ -169,6 +169,8 @@ def init_db() -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
     if "team" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN team TEXT")
+    if "avatar" not in cols:             # 主持人幫玩家選的像素角色（static/chars/<名字>.png）
+        conn.execute("ALTER TABLE users ADD COLUMN avatar TEXT")
     _migrate_rounds_for_pk(conn)
     round_cols = {r["name"] for r in conn.execute("PRAGMA table_info(rounds)")}
     if "game" not in round_cols:
@@ -653,6 +655,14 @@ def set_team(user_id: int, team: str | None) -> None:
     team = _check_team(team)
     with write() as conn:
         conn.execute("UPDATE users SET team = ? WHERE id = ?", (team, user_id))
+
+
+def set_avatar(user_id: int, avatar: str | None, choices) -> None:
+    avatar = (avatar or "").strip() or None
+    if avatar is not None and avatar not in choices:
+        raise BetError("沒有這個角色。")
+    with write() as conn:
+        conn.execute("UPDATE users SET avatar = ? WHERE id = ?", (avatar, user_id))
 
 
 def award(target: str, amount: int, reason: str) -> str:

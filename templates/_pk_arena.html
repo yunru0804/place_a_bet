@@ -25,6 +25,29 @@
     <p class="stage-hint">{{ GAME_INFO[round.game][1] }}</p>
   </div>
 
+  {% set sheet = char_uri(user.avatar) if (user is defined and user and round.team_a and my_side) else None %}
+  {% if sheet and round.game in ('tug', 'jump', 'shake') %}
+    <div class="my-sprite{{ ' flip' if round.game == 'tug' and my_side == 'B' else '' }}">
+      <div class="sprite" id="my-sprite" style="{{ char_vars(user.avatar) }}; --s: 2; --row: 0"></div>
+    </div>
+  {% endif %}
+
+  {# 大螢幕：兩隊有設定角色的人（screen 頁才會給 crowd） #}
+  {% if crowd is defined and crowd %}
+    <div class="crowd" id="crowd">
+      {% for k in ('A', 'B') %}
+        <div class="crowd-side crowd-{{ k|lower }}">
+          {% for c in crowd if c.side == k %}
+            <div class="crowd-one" data-side="{{ k }}">
+              <div class="sprite crowd-sprite" data-uid="{{ c.uid }}" data-side="{{ k }}" style="{{ c.vars }}; --s: 1; --row: 0"></div>
+              <span class="crowd-name">{{ c.name }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   <div class="pk-count" id="pk-count" hidden></div>
   <div class="pk-result" id="pk-result" hidden></div>
 </div>
@@ -49,6 +72,70 @@
   let lastCount = null;
   const changed = (...keys) => !prev || keys.some(k => JSON.stringify(prev[k]) !== JSON.stringify(st[k]));
   const pop = node => { node.classList.remove('hit'); void node.offsetWidth; node.classList.add('hit'); };
+
+  // ---------------- 像素角色（團體賽；沒設定角色就什麼都不做） ----------------
+  // 列：0 待機 1 拔河 2 跳繩 3 開香檳 4 勝利 5 失敗 6 正面待機 7 正面勝利
+  // ME：自己（玩家手機）；CROWD：兩隊所有人（大螢幕）
+  const mkSprite = e => {
+    let key = '', back = null;
+    const set = (row, cls, extra = {}) => {
+      if (!e) return;
+      const k = `${row}|${cls}|${extra.frame ?? ''}`;
+      if (k === key && cls !== 'once' && cls !== 'hop') return;   // 同樣的動作不要重播
+      key = k;
+      clearTimeout(back);
+      e.style.setProperty('--row', row);
+      e.style.setProperty('--frame', extra.frame || 0);
+      e.style.setProperty('--dur', (extra.dur || 700) + 'ms');
+      e.classList.remove('loop', 'hold', 'once', 'shaking', 'hop');
+      void e.offsetWidth;                              // 讓 once 從第 1 格重新播
+      e.classList.add(cls);
+    };
+    return {
+      on: !!e, el: e,
+      loop: row => set(row, 'loop'),
+      hold: (row, frame = 0) => set(row, 'hold', {frame}),
+      // 播一次；給 then 的話播完再切回去
+      once(row, dur = 700, then) { set(row, 'once', {dur}); if (then) back = setTimeout(then, dur); },
+      hop(dur = 520) { set(2, 'hop', {dur}); back = setTimeout(() => set(2, 'hold', {frame: 6}), dur + 80); },
+      // 有動作才動：每按一下／搖一下就續 0.35 秒，停手就回到第 1 格不動
+      burst(row, cls) {
+        if (!e) return;
+        if (!key.startsWith(`${row}|${cls}|`)) set(row, cls);
+        clearTimeout(back);
+        back = setTimeout(() => set(row, 'hold'), 350);
+      },
+      shaking() { this.burst(3, 'shaking'); },
+      pulling() { this.burst(1, 'loop'); },
+      act() { GAME === 'tug' ? this.pulling() : GAME === 'jump' ? this.hop() : this.shaking(); },
+    };
+  };
+  const ME = mkSprite($('my-sprite'));
+  const CROWD = [...document.querySelectorAll('.crowd-sprite')]
+    .map(e => ({uid: e.dataset.uid, side: e.dataset.side, sp: mkSprite(e), seen: null}));
+  const crowdSide = k => CROWD.filter(c => c.side === k);
+  // 每個階段的預設動作（遊戲裡的即時動作：自己由各遊戲呼叫 ME.xxx，大螢幕看 acts 有沒有增加）
+  const idleOne = (sp, phase) => {
+    if (!sp.on || phase === 'done') return;
+    if (phase !== 'play') return sp.loop(0);
+    if (GAME === 'tug') sp.hold(1);                 // 抓著繩子站好，按「拉」才拉
+    else if (GAME === 'jump') sp.hold(2, 6);        // 站在地上拿著握把（跳繩列第 7 格）
+    else if (GAME === 'shake') sp.hold(3);
+  };
+  const meIdle = phase => { idleOne(ME, phase); CROWD.forEach(c => idleOne(c.sp, phase)); };
+  const crowdActs = m => {
+    if (!CROWD.length || !m.acts) return;
+    for (const c of CROWD) {
+      const n = m.acts[c.uid] || 0;
+      if (c.seen !== null && n > c.seen && m.phase === 'play') c.sp.act();
+      c.seen = n;
+    }
+  };
+  const endSprites = result => {
+    const fin = (sp, k) => result ? sp.once(result === k ? 7 : 5, 1400) : sp.loop(0);   // 贏：正面歡呼；輸：側面跪地
+    if (ME.on) fin(ME, side);
+    CROWD.forEach(c => fin(c.sp, c.side));
+  };
 
   // 各遊戲的 G.<key> 由 pk/games/*.py 的 CLIENT_JS 注入
   const G = {};
@@ -93,6 +180,8 @@
       document.querySelectorAll('.badge.locked').forEach(b => { b.className = 'badge playing'; b.textContent = '⚡ 比賽中'; });
     }
     if (prev && prev.phase === 'countdown' && m.phase !== 'countdown') buzz(0, 'go');
+    if (!prev || prev.phase !== m.phase) meIdle(m.phase);
+    crowdActs(m);
     if (!G[GAME]) return;
     label.textContent = G[GAME].label(m);
     G[GAME].render(m);
@@ -111,6 +200,7 @@
       ? `🏆 ${esc(NAMES[m.result])} 獲勝！<small>${esc(m.summary)}</small>`
       : (m.summary === '本輪已作廢' ? '本輪已作廢' : `🤝 平手！本輪作廢退還<small>${esc(m.summary)}</small>`);
     if (m.result) buzz([80, 40, 80], side && m.result !== side ? 'lose' : 'win');
+    endSprites(m.result);
     // 自己（或自己的隊）贏了：大慶祝；觀眾：小慶祝
     if (m.result && window.fx && !(side && m.result !== side)) window.fx.celebrate(side ? 'big' : 'small');
     setTimeout(() => location.replace(location.pathname), 4500);

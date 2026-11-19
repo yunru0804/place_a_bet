@@ -25,3 +25,7 @@ instance/
 *.log
 
 graphify-out/
+
+# 真人照片與角色設定、由照片畫出來的角色圖 —— 個人資料，不要上傳
+picture/
+static/chars/

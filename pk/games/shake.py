@@ -32,6 +32,7 @@ class ShakeGame(TeamGame):
     lastShake = now;
     send({a: 'shake'});
     buzz(12, 'fizz');
+    ME.shaking();                                     // 有搖角色才搖
     const b = $('champ-' + side);
     if (b) { b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); }
   };
@@ -97,6 +98,10 @@ class ShakeGame(TeamGame):
         stage.innerHTML = `<div class="champ" id="champ">${bot('A')}${bot('B')}</div>` +
           '<div class="jr-hint" id="shakehint"></div>' +
           (side ? `<button type="button" class="tap-btn jr-btn ${$('panel-' + side).className.match(/team-\w+/)?.[0] || ''}" id="shakebtn">開啟搖晃</button>` : '');
+        if (ME.on) {                                    // 有角色：站在自己的瓶子旁邊（兩瓶中間、面向自己的瓶子）
+          $('champ').appendChild(ME.el.parentNode);
+          $('champ').classList.add('has-me', 'me-' + side);
+        }
         if (side) {
           const sb = $('shakebtn');
           // iOS Safari 只把「click / touchend」當成使用者手勢；在 pointerdown 裡呼叫
@@ -180,6 +185,7 @@ class ShakeGame(TeamGame):
             return
         recent.append(now)
         self.per_user[uid] = self.per_user.get(uid, 0) + 1
+        self.count_act(uid)
         self.shakes[side] += 1
         self.dirty = True
 

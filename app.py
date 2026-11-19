@@ -71,6 +71,53 @@ ICONS = {k: _icon_uri(f) for k, f in {"apple": "apple-touch-icon.png", "favicon"
                                        "192": "icon-192.png", "512": "icon-512.png"}.items()}
 templates.env.globals["ICONS"] = ICONS
 
+# 像素角色：static/chars/<名字>.png（用 tools/import_sheet.py 從 AI 生成的圖轉出來），一樣內嵌成 data URI。
+CHARS_DIR = os.path.join(BASE_DIR, "static", "chars")
+_chars_cache: dict[str, tuple[float, str]] = {}
+
+
+def char_names() -> list[str]:
+    if not os.path.isdir(CHARS_DIR):
+        return []
+    return sorted(f[:-4] for f in os.listdir(CHARS_DIR) if f.endswith(".png"))
+
+
+def char_uri(name: str | None) -> str | None:
+    if not name:
+        return None
+    path = os.path.join(CHARS_DIR, f"{name}.png")
+    if os.path.dirname(os.path.abspath(path)) != CHARS_DIR or not os.path.isfile(path):
+        return None
+    mtime = os.path.getmtime(path)
+    hit = _chars_cache.get(name)
+    if not hit or hit[0] != mtime:
+        import base64
+        with open(path, "rb") as f:
+            hit = (mtime, "data:image/png;base64," + base64.b64encode(f.read()).decode())
+        _chars_cache[name] = hit
+    return hit[1]
+
+
+SPRITE_ROWS = 8
+
+
+def char_vars(name: str | None) -> str:
+    """給 .sprite 用的 CSS 變數：圖、每格寬高（圖是 8 欄 × SPRITE_ROWS 列，從 PNG 檔頭讀尺寸）。
+    列的順序：0 待機、1 拔河、2 跳繩、3 開香檳、4 勝利、5 失敗、6 正面待機、7 正面勝利
+    （tools/import_sheet.py 的 ROW_KEYS）。"""
+    uri = char_uri(name)
+    if not uri:
+        return ""
+    import struct
+    with open(os.path.join(CHARS_DIR, f"{name}.png"), "rb") as f:
+        w, h = struct.unpack(">II", f.read(24)[16:24])
+    return f"--sheet: url('{uri}'); --fw: {w / 8:g}px; --fh: {h / SPRITE_ROWS:g}px; --rows: {SPRITE_ROWS}"
+
+
+templates.env.globals["char_names"] = char_names
+templates.env.globals["char_vars"] = char_vars
+templates.env.globals["char_uri"] = char_uri
+
 
 def _manifest(name: str, short: str, start: str) -> JSONResponse:
     """加到主畫面用（Android 讀這個；iPhone 讀 <link rel=apple-touch-icon>）。每位玩家各自一份，打開就是自己的頁面。"""
@@ -351,6 +398,38 @@ def admin_page(request: Request):
     return templates.TemplateResponse(request, "admin.html", ctx)
 
 
+@app.get("/admin/screen", response_class=HTMLResponse)
+def admin_screen(request: Request):
+    """投影用大螢幕：比賽中顯示比賽畫面（觀眾視角），下注中顯示下注狀況，沒比賽時顯示排行榜。
+    比賽開始、結束會自己切換畫面，不用碰電腦。"""
+    _require_admin(request)
+    with db.read() as conn:
+        rnd = db.active_round(conn)
+        ctx = {"round": rnd, "board": db.leaderboard(conn), "min_bet": db.MIN_BET,
+               "data_url": "/admin/leaderboard/data", "epoch": db.get_epoch(conn)}
+        ctx.update(_live_ctx(conn, rnd))
+        ctx.update(_pk_ctx(conn, rnd, None))
+        ctx["crowd"] = []
+        if rnd and rnd["kind"] == "pk" and rnd["game"] in TEAM_GAMES:   # 團體賽：兩隊有角色的人都上大螢幕
+            for side, team in (("A", rnd["team_a"]), ("B", rnd["team_b"])):
+                for m in db.team_members(conn, team):
+                    u = db.get_user(conn, m["id"])
+                    if u["avatar"] and char_uri(u["avatar"]):
+                        ctx["crowd"].append({"uid": u["id"], "side": side, "name": u["name"],
+                                             "vars": char_vars(u["avatar"])})
+    return templates.TemplateResponse(request, "screen.html", ctx)
+
+
+@app.get("/admin/screen/state")
+def admin_screen_state(request: Request):
+    _require_admin(request)
+    with db.read() as conn:
+        rnd = db.active_round(conn)
+        epoch = db.get_epoch(conn)
+    return JSONResponse({"round": rnd["id"] if rnd else None,
+                         "status": rnd["status"] if rnd else None, "epoch": epoch})
+
+
 def _live_ctx(conn, rnd):
     if rnd is None:
         return {"bets": [], "total_a": 0, "total_b": 0, "count_a": 0, "count_b": 0, "tally": []}
@@ -379,16 +458,44 @@ def admin_live(request: Request):
     return templates.TemplateResponse(request, "_live.html", ctx)
 
 
-def _board_ctx(conn):
-    return {"board": db.leaderboard(conn), "round": db.active_round(conn), "min_bet": db.MIN_BET}
+def _board_ctx(conn, data_url="/leaderboard/data", me=None, back=None):
+    return {"board": db.leaderboard(conn), "round": db.active_round(conn), "min_bet": db.MIN_BET,
+            "data_url": data_url, "me": me, "back": back}
+
+
+@app.get("/leaderboard", response_class=HTMLResponse)
+def public_leaderboard(request: Request):
+    """公開排行榜（不用登入，可以投影到大螢幕），每 5 秒自動更新。"""
+    with db.read() as conn:
+        ctx = _board_ctx(conn)
+    return templates.TemplateResponse(request, "leaderboard.html", ctx)
+
+
+@app.get("/leaderboard/data", response_class=HTMLResponse)
+def public_leaderboard_data(request: Request, me: int | None = None):
+    with db.read() as conn:
+        ctx = _board_ctx(conn, me=me)
+    return templates.TemplateResponse(request, "_board.html", ctx)
+
+
+@app.get("/p/{token}/leaderboard", response_class=HTMLResponse)
+def player_leaderboard(request: Request, token: str):
+    """玩家從自己的頁面點進來：標出自己、有返回鍵。"""
+    with db.read() as conn:
+        user = db.get_user_by_token(conn, token)
+        if user is None:
+            raise HTTPException(404)
+        ctx = _board_ctx(conn, data_url=f"/leaderboard/data?me={user['id']}", me=user["id"],
+                         back=f"/p/{token}")
+    return templates.TemplateResponse(request, "leaderboard.html", ctx)
 
 
 @app.get("/admin/leaderboard", response_class=HTMLResponse)
 def admin_leaderboard(request: Request):
-    """獨立排行榜頁（適合投影），每 5 秒自動更新。"""
+    """後台的獨立排行榜頁（適合投影），每 5 秒自動更新。"""
     _require_admin(request)
     with db.read() as conn:
-        ctx = _board_ctx(conn)
+        ctx = _board_ctx(conn, data_url="/admin/leaderboard/data")
     return templates.TemplateResponse(request, "leaderboard.html", ctx)
 
 
@@ -558,6 +665,12 @@ def admin_add_player(request: Request, name: str = Form(""), team: str = Form(""
 def admin_set_team(request: Request, user_id: int, team: str = Form("")):
     return _admin_action(request, db.set_team, user_id, team,
                          ok=f"已改為{db.TEAMS.get(team, '未分隊')}。")
+
+
+@app.post("/admin/players/{user_id}/avatar")
+def admin_set_avatar(request: Request, user_id: int, avatar: str = Form("")):
+    return _admin_action(request, db.set_avatar, user_id, avatar, char_names(),
+                         ok=f"角色已改為「{avatar}」。" if avatar else "已取消角色。")
 
 
 @app.post("/admin/awards")

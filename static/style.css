@@ -408,6 +408,13 @@ button.link.del { color: var(--lose) !important; }
 }
 .board .rank-1 .who { font-size: 1.5rem; }
 .board .rank-1 .score { font-size: 2rem; color: var(--gold-hi); text-shadow: 0 0 14px rgba(247,201,72,.6); }
+.board li.me { outline: 3px solid var(--gold-hi); outline-offset: 2px; }
+.board .who .you { font-style: normal; font-size: .72rem; padding: 1px 8px; border-radius: 99px; vertical-align: middle;
+  color: #3a2a00; background: var(--gold); }
+.back-link { display: inline-block; margin: -4px 0 12px; font-weight: 800; color: var(--gold-hi); text-decoration: none; }
+/* 玩家首頁的排行榜入口（沿用娛樂城入口的樣式，換成金色系） */
+.casino-entry.board-entry { margin-top: 0; background: linear-gradient(100deg, #3a2a00, #8a6100 55%, #3a2a00); box-shadow: 0 5px 0 #241a00, 0 8px 20px rgba(0,0,0,.35); }
+.casino-entry.board-entry .ce-text small { color: #f3e2b0; }
 .board .rank-2 { background: linear-gradient(135deg, rgba(220,225,235,.25), rgba(3,26,17,.75) 70%); border-color: #cfd6e2; }
 .board .rank-3 { background: linear-gradient(135deg, rgba(205,127,50,.3), rgba(3,26,17,.75) 70%); border-color: #cd7f32; }
 .board li.out { opacity: .5; }
@@ -758,6 +765,31 @@ body.pk-on .arena-head { margin-bottom: 8px; }
   .toast { opacity: 1; }
 }
 
+/* ============ 投影大螢幕（/admin/screen，只給電腦＋投影機用） ============ */
+body.screen { overflow: hidden; }
+body.screen .wrap { max-width: none; height: 100vh; padding: 20px 32px; display: flex; flex-direction: column; box-sizing: border-box; }
+body.screen .sfx-toggle { opacity: .5; }
+.scr-top { flex: none; display: flex; align-items: center; gap: 20px; padding-bottom: 14px; margin-bottom: 14px;
+  border-bottom: 2px solid var(--gold-lo); }
+.scr-brand { font-family: var(--display); font-size: 2.8rem; color: var(--gold-hi); text-shadow: 0 0 16px rgba(247,201,72,.5); white-space: nowrap; }
+.scr-title { flex: 1; min-width: 0; font-size: 2.6rem; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scr-title .pk-tag { font-size: 1.3rem; vertical-align: middle; }
+.screen .scr-top .badge { font-size: 1.6rem; padding: 8px 20px; }
+.scr-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.scr-fit { width: 520px; }
+.scr-live, .scr-board { flex: 1; min-height: 0; overflow: auto; max-width: 1100px; width: 100%; margin: 0 auto; }
+.scr-board h2 { text-align: center; font-size: 3rem; margin: 6px 0 22px; }
+.screen .board li { padding: 16px 28px; }
+.screen .board .rank { font-size: 1.8rem; width: 64px; }
+.screen .board .who { font-size: 2.1rem; }
+.screen .board .score { font-size: 2.6rem; }
+.screen .board .rank-1 .who { font-size: 2.6rem; }
+.screen .board .rank-1 .score { font-size: 3.2rem; }
+.scr-vs { display: flex; align-items: center; justify-content: center; gap: 28px; font-size: 2.4rem; font-weight: 900; margin: 6px 0 18px; }
+.scr-vs b { font-family: var(--display); color: var(--gold); }
+.screen #live { font-size: 1.3rem; }
+.screen #live .big { font-size: 3rem; }
+
 /* ============ 娛樂城 ============ */
 .casino-entry {
   display: flex; align-items: center; gap: 12px; margin: -6px 0 18px; padding: 12px 16px;
@@ -957,3 +989,100 @@ body.pk-on .arena-head { margin-bottom: 8px; }
 .vr-name small { margin-left: 8px; color: var(--muted); font-weight: 600; }
 .vr-award { font-family: var(--display); color: var(--win); }
 .vr-play { width: 38px; height: 38px; border-radius: 50%; border: none; background: #2b59c3; color: #fff; font-size: .95rem; flex: none; }
+
+/* ---------- 起始畫面 ---------- */
+body.splash-open { overflow: hidden; }
+.splash {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px 16px;
+  background: radial-gradient(ellipse at 50% 35%, var(--felt) 0%, var(--felt-dark) 55%, var(--felt-deep) 100%);
+  cursor: pointer; transition: opacity .45s ease, transform .45s ease;
+}
+.splash.out { opacity: 0; transform: scale(1.04); pointer-events: none; }
+.splash-inner { width: 100%; max-width: 360px; text-align: center; animation: splash-in .6s ease both; }
+.splash-name {
+  font-family: 'Bungee', 'Noto Sans TC', sans-serif; font-weight: 900;
+  font-size: clamp(30px, 9vw, 42px); color: var(--gold-hi);
+  text-shadow: 0 2px 0 var(--gold-lo), 0 0 18px rgba(247, 201, 72, .45);
+  word-break: break-word;
+}
+.splash-title { margin-top: 6px; font-size: 18px; font-weight: 700; color: #fff; letter-spacing: .08em; }
+.splash-box {
+  margin: 28px auto; width: min(264px, 72vw); aspect-ratio: 1;
+  display: flex; align-items: center; justify-content: center;
+  border: 4px solid var(--gold); border-radius: 6px;
+  background: rgba(0, 0, 0, .28);
+  box-shadow: 0 0 0 4px var(--felt-deep), 0 0 0 8px var(--gold-lo), 0 10px 30px rgba(0, 0, 0, .5);
+  image-rendering: pixelated;
+}
+.splash-box img, .splash-box canvas { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.splash-placeholder { color: rgba(255, 255, 255, .35); font-size: 14px; }
+.splash-go {
+  font: inherit; font-weight: 900; font-size: 18px; padding: 12px 28px;
+  border: 0; border-radius: 999px; color: #3a2a00;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  box-shadow: 0 4px 0 var(--gold-lo); animation: splash-pulse 1.4s ease-in-out infinite;
+}
+@keyframes splash-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes splash-pulse { 50% { transform: scale(1.06); } }
+
+/* ---------- 像素角色（static/chars/*.png：一列 8 格，8 列；每格寬高由後端給 --fw/--fh/--rows） ----------
+   列：0 待機 1 拔河 2 跳繩 3 開香檳 4 勝利 5 失敗 6 正面待機 7 正面勝利
+   .loop 一直循環（預設）、.hold 停在第 --frame 格、.once 播一次停在最後一格、.shaking 只循環前 5 格 */
+.sprite {
+  --s: 2; --row: 0; --fw: 48px; --fh: 58px;
+  width: calc(var(--fw) * var(--s)); height: calc(var(--fh) * var(--s));
+  background-image: var(--sheet); background-repeat: no-repeat;
+  background-size: calc(var(--fw) * 8 * var(--s)) calc(var(--fh) * var(--rows, 8) * var(--s));
+  background-position-x: 0;
+  background-position-y: calc(var(--fh) * -1 * var(--s) * var(--row));
+  image-rendering: pixelated;
+  animation: sprite-run .9s steps(8) infinite;
+}
+@keyframes sprite-run { to { background-position-x: calc(var(--fw) * -8 * var(--s)); } }
+.sprite.hold { animation: none; background-position-x: calc(var(--fw) * -1 * var(--s) * var(--frame, 0)); }
+.sprite.once { animation: sprite-once var(--dur, .7s) steps(8, jump-none) forwards; }
+.sprite.shaking { animation: sprite-shake .32s steps(5) infinite; }
+@keyframes sprite-once { from { background-position-x: 0; } to { background-position-x: calc(var(--fw) * -7 * var(--s)); } }
+@keyframes sprite-shake { from { background-position-x: 0; } to { background-position-x: calc(var(--fw) * -5 * var(--s)); } }
+/* 跳繩＋自己的角色：繩子縮到圍住角色，角色站在地板上（握把畫在角色手上，所以藏起原本的握把） */
+.jr.has-me { height: 210px; background: linear-gradient(#1a3d55 0 84%, #2a6b3a 84% 86%, #3d2a18 86% 100%); }
+.jr.has-me .jr-handle { display: none; }
+.jr.has-me .jr-rope { left: calc(50% - 64px); right: calc(50% - 64px); top: 44px; height: 150px; transform-origin: 50% 50%; }
+.jr.has-me .jr-floor { bottom: 28px; }
+.jr.has-me .my-sprite { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); margin: 0; z-index: 3; }
+/* 拔河＋自己的角色：角色手上的繩子（拔河圖第 44 列像素 × 2 倍）對齊畫面中間的繩子 */
+.rope-wrap.has-me { height: 180px; }
+.rope-wrap.has-me .rope { height: 6px; margin-top: -3px; }      /* 跟角色手上的繩子一樣粗，接起來像同一條 */
+.rope-wrap.has-me .my-sprite { position: absolute; top: calc(50% - 89px); margin: 0; transform: translateX(-50%);
+  z-index: 3; transition: left .15s linear; }
+/* 開香檳＋自己的角色：站在兩瓶中間、靠自己那瓶，臉朝自己的瓶子 */
+.champ.has-me { position: relative; }
+.champ.has-me .my-sprite { position: absolute; bottom: 26px; margin: 0; transform: translateX(-50%); z-index: 3; }
+.champ.has-me.me-A .my-sprite { left: 47%; }
+.champ.has-me.me-A .my-sprite .sprite { transform: scaleX(-1); }
+.champ.has-me.me-B .my-sprite { left: 53%; }
+/* 大螢幕：兩隊所有人的角色（跳繩、開香檳排在下面；拔河排在繩子上） */
+.crowd { display: flex; justify-content: space-between; gap: 8px; margin: 8px 0 2px; }
+.crowd-side { flex: 1; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; }
+.crowd-one { display: flex; flex-direction: column; align-items: center; width: 50px; }
+.crowd-name { font-size: .6rem; font-weight: 800; color: var(--muted); white-space: nowrap; max-width: 64px;
+  overflow: hidden; text-overflow: ellipsis; margin-top: -2px; }
+.crowd-one[data-side="B"] .sprite { transform: scaleX(-1); }     /* 黃隊（右邊）面向中間 */
+.jr.has-crowd { height: 170px; }
+.jr.has-crowd .crowd { position: absolute; left: 16%; right: 16%; bottom: 10px; margin: 0; z-index: 3; }
+.rope-wrap.has-crowd { height: 150px; }
+.rope-wrap.has-crowd .rope { height: 4px; margin-top: -2px; }   /* 跟角色手上的繩子一樣粗 */
+.rope-wrap .crowd-one.on-rope { position: absolute; top: calc(50% - 44.5px); transform: translateX(-50%); z-index: 3;
+  transition: left .15s linear; }
+/* 跳一次：跳繩列的第 3～7 格（起跳 → 空中 → 落地），停在第 7 格 */
+.sprite.hop { animation: sprite-hop var(--dur, .5s) steps(5, jump-none) forwards;   /* jump-none：5 段 = 5 格（含頭尾） */ }
+@keyframes sprite-hop { from { background-position-x: calc(var(--fw) * -2 * var(--s)); } to { background-position-x: calc(var(--fw) * -6 * var(--s)); } }
+.splash-box .sprite { max-width: 100%; }
+.my-sprite { display: flex; justify-content: center; margin: 6px 0 -4px; }
+.my-sprite.flip .sprite { transform: scaleX(-1); }
+@media (prefers-reduced-motion: reduce) { .sprite { animation-duration: 1.8s; } }
+.splash[hidden] { display: none; }
+.splash-link { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.splash-link:active { transform: scale(.96); }

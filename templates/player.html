@@ -6,6 +6,54 @@
 {% include "_sfx.html" %}
 {% include "_fx.html" %}
 
+{# 起始畫面：每次打開連結出現一次（頁面自動重新整理時不會再跳） #}
+<div class="splash" id="splash" role="dialog" aria-label="歡迎畫面">
+  <div class="splash-inner">
+    <div class="splash-name">{{ user.name }}</div>
+    <div class="splash-title">歡迎來到 DS科大賭場</div>
+    <div class="splash-box" id="pixel-hero" aria-hidden="true">
+      {% set sheet = char_uri(user.avatar) %}
+      {% if sheet %}<div class="sprite" style="{{ char_vars(user.avatar) }}; --s: 4; --row: 6"></div>
+      {% else %}<span class="splash-placeholder">🎰</span>{% endif %}
+    </div>
+    <button type="button" class="splash-go" id="splash-go">點一下進場</button>
+  </div>
+</div>
+<script>
+  (() => {
+    const el = document.getElementById('splash');
+    const KEY = 'splash-seen';
+    let seen = false;
+    try { seen = sessionStorage.getItem(KEY) === '1'; } catch (e) {}
+    let timer = null;
+    const open = () => {
+      clearTimeout(timer);
+      el.hidden = false;
+      void el.offsetWidth;                 // 讓淡入動畫重新播放
+      el.classList.remove('out');
+      document.body.classList.add('splash-open');
+    };
+    const close = () => {
+      try { sessionStorage.setItem(KEY, '1'); } catch (e) {}
+      el.classList.add('out');
+      document.body.classList.remove('splash-open');
+      timer = setTimeout(() => { el.hidden = true; }, 450);
+    };
+    if (seen) el.hidden = true; else open();
+    el.addEventListener('click', close);
+    // 點主畫面上的名字，可以再看一次歡迎畫面
+    document.addEventListener('DOMContentLoaded', () => {
+      const name = document.querySelector('.marquee .name');
+      if (!name) return;
+      name.classList.add('splash-link');
+      name.setAttribute('role', 'button');
+      name.tabIndex = 0;
+      name.addEventListener('click', open);
+      name.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    });
+  })();
+</script>
+
 <header class="marquee">
   <div class="bulbs top" aria-hidden="true"></div>
   <div class="welcome">WELCOME</div>
@@ -25,8 +73,14 @@
   {% endif %}
 </section>
 
+<a class="casino-entry board-entry" href="/p/{{ user.token }}/leaderboard">
+  <span class="ce-icons" aria-hidden="true">🏆</span>
+  <span class="ce-text"><b>排行榜</b><small>看看現在誰最有錢</small></span>
+  <span class="ce-go" aria-hidden="true">›</span>
+</a>
+
 <a class="casino-entry" href="/p/{{ user.token }}/casino">
-  <span class="ce-icons" aria-hidden="true">🎰🎲🃏</span>
+  <span class="ce-icons" aria-hidden="true">🎰</span>
   <span class="ce-text"><b>娛樂城</b><small>拉霸機 · 骰寶比大小 · 撲克猜大小</small></span>
   <span class="ce-go" aria-hidden="true">›</span>
 </a>

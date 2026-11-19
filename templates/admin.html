@@ -6,6 +6,7 @@
 <header class="row-between">
   <h1>管理後台</h1>
   <div class="head-links">
+    <a href="/admin/screen" target="_blank" class="board-link">📺 大螢幕</a>
     <a href="/admin/leaderboard" target="_blank" class="board-link">🏆 排行榜</a>
     <form method="post" action="/admin/logout"><button type="submit" class="link">登出</button></form>
   </div>
@@ -272,6 +273,16 @@
               {% endfor %}
             </select>
           </form>
+          {% if char_names() %}
+          <form method="post" action="/admin/players/{{ u.id }}/avatar">
+            <select name="avatar" onchange="this.form.submit()" aria-label="{{ u.name }} 的角色">
+              <option value="" {% if not u.avatar %}selected{% endif %}>無角色</option>
+              {% for c in char_names() %}
+                <option value="{{ c }}" {% if u.avatar == c %}selected{% endif %}>🧍 {{ c }}</option>
+              {% endfor %}
+            </select>
+          </form>
+          {% endif %}
         </div>
         <div class="prow">
           <code>{{ link }}</code>

@@ -9,6 +9,7 @@
   <div class="bulbs bottom" aria-hidden="true"></div>
 </header>
 
+{% if back %}<a class="back-link" href="{{ back }}">‹ 回我的頁面</a>{% endif %}
 <div id="board">{% include "_board.html" %}</div>
 {% endblock %}
 
@@ -16,7 +17,7 @@
 <script>
   setInterval(async () => {
     try {
-      const r = await fetch('/admin/leaderboard/data', {cache: 'no-store'});
+      const r = await fetch({{ data_url|tojson }}, {cache: 'no-store', headers: {'ngrok-skip-browser-warning': '1'}});
       if (r.ok && !r.redirected) document.getElementById('board').innerHTML = await r.text();
     } catch (e) {}
   }, 5000);

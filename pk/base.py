@@ -122,6 +122,16 @@ class TeamGame(BaseGame):
         self.sides = {m["id"]: side for side, ms in members.items() for m in ms}
         self.names = {m["id"]: m["name"] for ms in members.values() for m in ms}
         self.size = {side: max(1, len(ms)) for side, ms in members.items()}
+        self.acts: dict[int, int] = {}      # 每個人做了幾次動作（拉／跳／搖），大螢幕用來讓那個人的角色動
+
+    def count_act(self, uid: int) -> None:
+        self.acts[uid] = self.acts.get(uid, 0) + 1
+        self.mark()
+
+    def message(self) -> dict:
+        msg = super().message()
+        msg["acts"] = {str(u): n for u, n in self.acts.items()}
+        return msg
 
 
 class SoloGame(BaseGame):

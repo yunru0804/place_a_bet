@@ -8,10 +8,10 @@
 <ol class="board">
 {% for u in board %}
   {% set out = u.balance < min_bet and u.pending == 0 %}
-  <li class="rank-{{ u.rank if u.rank <= 3 else 'n' }}{{ ' out' if out else '' }}">
+  <li class="rank-{{ u.rank if u.rank <= 3 else 'n' }}{{ ' out' if out else '' }}{{ ' me' if me is defined and me == u.id else '' }}">
     <span class="rank">{% if u.rank == 1 %}🥇{% elif u.rank == 2 %}🥈{% elif u.rank == 3 %}🥉{% else %}{{ u.rank }}{% endif %}</span>
     <span class="who">
-      {{ u.name }}{% if out %}<small>出局</small>{% endif %}
+      {{ u.name }}{% if me is defined and me == u.id %} <em class="you">你</em>{% endif %}{% if out %}<small>出局</small>{% endif %}
       {% if u.team %}<span class="team-tag team-{{ u.team }}">{{ TEAMS[u.team] }}</span>{% endif %}
     </span>
     <span class="score">

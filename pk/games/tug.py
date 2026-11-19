@@ -35,13 +35,39 @@ class TugGame(TeamGame):
           '<div class="knot" id="knot">🎀</div>' +
           `<span class="rope-end ea">${esc(NAMES.A)}</span><span class="rope-end eb">${esc(NAMES.B)}</span></div>` +
           (side ? `<button type="button" class="tap-btn tug-btn ${$('panel-' + side).className.match(/team-\w+/)?.[0] || ''}" id="tugbtn" disabled>準備…</button>` : '');
+        if (ME.on) {                                    // 有角色：讓角色站在自己那一端、抓著繩子
+          $('rope').parentNode.appendChild(ME.el.parentNode);
+          $('rope').parentNode.classList.add('has-me');
+        }
+        if (CROWD.length) {                             // 大螢幕：兩隊所有角色排在繩子上
+          const wrap = $('rope').parentNode;
+          for (const c of CROWD) {
+            const one = c.sp.el.parentNode;
+            one.classList.add('on-rope');
+            wrap.appendChild(one);
+          }
+          wrap.classList.add('has-crowd');
+          $('crowd').hidden = true;
+        }
         if (side) $('tugbtn').addEventListener('pointerdown', e => {
           e.preventDefault();
           if (!st || st.phase !== 'play') return;
           tugLocal++; send({a: 'tap'}); buzz(0, 'tap'); pop($('tugbtn'));
+          ME.pulling();                                 // 有拉角色才拉
         });
       }
       $('knot').style.left = (50 + s.pos * 0.42) + '%';
+      // 角色跟著繩子被拉動（跟蝴蝶結一樣的位移）
+      // 最多拉到 20%／80%，不會整個人被拖出畫面（角色身體在圖的一側，太靠邊頭會被切掉）
+      if (ME.on) ME.el.parentNode.style.left = Math.min(80, Math.max(20, (side === 'B' ? 72 : 28) + s.pos * 0.42)) + '%';
+      // 大螢幕：第一個人站在靠中間的位置，其他人往後排；人多就擠一點
+      for (const k of ['A', 'B']) {
+        const team = crowdSide(k), gap = Math.min(8, 26 / Math.max(1, team.length - 1));
+        team.forEach((c, i) => {
+          const x = (k === 'A' ? 32 - i * gap : 68 + i * gap) + s.pos * 0.42;
+          c.sp.el.parentNode.style.left = Math.min(95, Math.max(5, x)) + '%';
+        });
+      }
       $('knot').classList.toggle('lead-a', s.pos < 0);
       $('knot').classList.toggle('lead-b', s.pos > 0);
       const b = $('tugbtn');
@@ -84,6 +110,7 @@ class TugGame(TeamGame):
             return
         recent.append(now)
         self.per_user[uid] = self.per_user.get(uid, 0) + 1
+        self.count_act(uid)
         self.taps[side] += 1
         pull = Fraction(self.PULL) / self.size[side]
         self.pos = max(Fraction(-100), min(Fraction(100), self.pos + (-pull if side == "A" else pull)))

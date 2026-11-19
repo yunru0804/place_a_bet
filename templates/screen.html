@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{# 投影用大螢幕（電腦接投影機）。不考慮手機排版。 #}
+{% block title %}大螢幕{% endblock %}
+{% block app_title %}DS賭場大螢幕{% endblock %}
+{% block body_class %}player screen{% endblock %}
+{% block content %}
+{% include "_sfx.html" %}
+{% include "_fx.html" %}
+{% set arena = round and round.kind == 'pk' and round.game != 'live' and round.status in ('locked', 'playing') %}
+
+<header class="scr-top">
+  <div class="scr-brand">DS科大賭場</div>
+  {% if round %}
+    <div class="scr-title">
+      {% if round.kind == 'pk' %}<span class="pk-tag">{{ '全員賽' if round.game in SOLO_GAMES else ('團體賽' if round.team_a else 'PK') }}</span>{% endif %}
+      {{ round.title }}
+    </div>
+    <span class="badge {{ round.status }}">{{ {'voting': '🗳️ 投票中', 'open': '● 開放下注', 'locked': ('準備開賽' if arena else '🔒 停止下注'), 'playing': '⚡ 比賽中'}[round.status] }}</span>
+  {% else %}
+    <div class="scr-title">等待下一場…</div>
+  {% endif %}
+</header>
+
+{% if arena %}
+  <section class="scr-stage" id="scr-stage">
+    <div class="scr-fit" id="scr-fit">
+      {% set ws_query = '' %}{% set my_side = None %}
+      {% include "_pk_arena.html" %}
+    </div>
+  </section>
+{% elif round %}
+  <section class="scr-live">
+    {% if round.kind == 'pk' and pk_a and pk_b %}
+      <div class="scr-vs"><span>{{ pk_a.name }}</span><b>VS</b><span>{{ pk_b.name }}</span></div>
+    {% endif %}
+    <div id="live">{% include "_live.html" %}</div>
+  </section>
+{% else %}
+  <section class="scr-board">
+    <h2>🏆 排行榜</h2>
+    <div id="board">{% include "_board.html" %}</div>
+  </section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const H = {cache: 'no-store', headers: {'ngrok-skip-browser-warning': '1'}};
+  const now = {round: {{ (round.id if round else None)|tojson }}, status: {{ (round.status if round else None)|tojson }}, epoch: {{ epoch|tojson }}};
+  // 輪次或狀態變了就整頁重畫（比賽進行中不要，比賽結束時擂台自己會重新整理）
+  setInterval(async () => {
+    if (window.pkLive) return;
+    try {
+      const r = await fetch('/admin/screen/state', H);
+      if (!r.ok || r.redirected) return;
+      const s = await r.json();
+      if (['round', 'status', 'epoch'].some(k => s[k] !== now[k])) location.reload();
+    } catch (e) {}
+  }, 2000);
+  // 下注狀況、排行榜：只換內容
+  const swap = (id, url, ms) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    setInterval(async () => {
+      try { const r = await fetch(url, H); if (r.ok && !r.redirected) el.innerHTML = await r.text(); } catch (e) {}
+    }, ms);
+  };
+  swap('live', '/admin/live', 3000);
+  swap('board', '/admin/leaderboard/data', 5000);
+  // 比賽畫面是照手機尺寸設計的：等比放大塞滿投影畫面
+  const fit = document.getElementById('scr-fit'), box = document.getElementById('scr-stage');
+  if (fit && box) {
+    const resize = () => {
+      fit.style.zoom = 1;
+      const z = Math.min(box.clientWidth / fit.offsetWidth, box.clientHeight / fit.offsetHeight);
+      fit.style.zoom = Math.max(1, Math.min(3, z * 0.98)).toFixed(3);
+    };
+    new ResizeObserver(resize).observe(box);
+    new MutationObserver(() => requestAnimationFrame(resize)).observe(fit, {childList: true, subtree: true, attributes: true, attributeFilter: ['hidden']});
+    resize();
+  }
+})();
+</script>
+{% endblock %}
