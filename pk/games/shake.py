@@ -22,6 +22,7 @@ class ShakeGame(TeamGame):
     MAX_PER_SEC = 8
     CLIENT_JS = r"""
   let shakeOn = false, lastShake = 0, prevG = null, shakeDenied = false;
+  const champHeat = {A: null, B: null}, champStop = {};   // 液面有升高 = 那一隊有人在搖
   const SHAKE_IDLE = {phase: 'ready', heat: {A: 0, B: 0}};   // 開賽前先畫畫面用
   const needsMotionPerm = !!(typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission);
   const httpBlocked = needsMotionPerm && !window.isSecureContext;
@@ -120,6 +121,12 @@ class ShakeGame(TeamGame):
       for (const k of ['A', 'B']) {
         const h = s.heat[k];
         const el = $('champ-' + k);
+        if (s.phase === 'play' && champHeat[k] !== null && h > champHeat[k]) {   // 有在搖才晃，停 0.4 秒就靜止
+          el.classList.add('active');
+          clearTimeout(champStop[k]);
+          champStop[k] = setTimeout(() => el.classList.remove('active'), 400);
+        }
+        champHeat[k] = h;
         $('fill-' + k).style.height = Math.min(100, h * 100) + '%';
         el.classList.toggle('me', side === k);
         el.classList.toggle('simmer', h >= 0.4 && h < 0.7);
