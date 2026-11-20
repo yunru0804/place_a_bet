@@ -98,13 +98,13 @@ def char_uri(name: str | None) -> str | None:
     return hit[1]
 
 
-SPRITE_ROWS = 8
+SPRITE_ROWS = 12
 
 
 def char_vars(name: str | None) -> str:
     """給 .sprite 用的 CSS 變數：圖、每格寬高（圖是 8 欄 × SPRITE_ROWS 列，從 PNG 檔頭讀尺寸）。
-    列的順序：0 待機、1 拔河、2 跳繩、3 開香檳、4 勝利、5 失敗、6 正面待機、7 正面勝利
-    （tools/import_sheet.py 的 ROW_KEYS）。"""
+    列的順序：0 待機、1 拔河、2 跳繩、3 開香檳、4 勝利、5 失敗、6 正面待機、7 正面勝利、
+    8 思考、9 點擊、10 說話、11 唱歌（tools/import_sheet.py 的 ROW_KEYS）。"""
     uri = char_uri(name)
     if not uri:
         return ""
@@ -410,13 +410,19 @@ def admin_screen(request: Request):
         ctx.update(_live_ctx(conn, rnd))
         ctx.update(_pk_ctx(conn, rnd, None))
         ctx["crowd"] = []
+        def add(u, side):
+            if u and u["avatar"] and char_uri(u["avatar"]):
+                ctx["crowd"].append({"uid": u["id"], "side": side, "name": u["name"], "vars": char_vars(u["avatar"])})
         if rnd and rnd["kind"] == "pk" and rnd["game"] in TEAM_GAMES:   # 團體賽：兩隊有角色的人都上大螢幕
             for side, team in (("A", rnd["team_a"]), ("B", rnd["team_b"])):
                 for m in db.team_members(conn, team):
-                    u = db.get_user(conn, m["id"])
-                    if u["avatar"] and char_uri(u["avatar"]):
-                        ctx["crowd"].append({"uid": u["id"], "side": side, "name": u["name"],
-                                             "vars": char_vars(u["avatar"])})
+                    add(db.get_user(conn, m["id"]), side)
+        elif rnd and rnd["kind"] == "pk" and rnd["game"] in SOLO_GAMES:   # 全員賽：所有有角色的人
+            for u in db.users(conn):
+                add(db.get_user(conn, u["id"]), "S")
+        elif rnd and rnd["kind"] == "pk" and rnd["game"] not in SOLO_GAMES:   # PK：兩位選手
+            add(ctx.get("pk_a"), "A")
+            add(ctx.get("pk_b"), "B")
     return templates.TemplateResponse(request, "screen.html", ctx)
 
 
@@ -430,13 +436,33 @@ def admin_screen_state(request: Request):
                          "status": rnd["status"] if rnd else None, "epoch": epoch})
 
 
+def _opt_teams(conn, rnd) -> dict:
+    """每個選項對應的隊伍（顯示顏色用，不再顯示 A／B）：
+    團體賽用兩隊；PK 用兩位選手自己的隊；一般下注盤看選項文字裡有沒有隊名。"""
+    out = {"A": None, "B": None}
+    if rnd is None:
+        return out
+    if rnd["team_a"]:
+        return {"A": rnd["team_a"], "B": rnd["team_b"]}
+    for side in "AB":
+        pid = rnd[f"player_{side.lower()}"]
+        u = db.get_user(conn, pid) if pid else None
+        if u and u["team"]:
+            out[side] = u["team"]
+        else:
+            label = rnd[f"option_{side.lower()}"] or ""
+            out[side] = next((k for k, v in db.TEAMS.items() if v in label), None)
+    return out
+
+
 def _live_ctx(conn, rnd):
     if rnd is None:
-        return {"bets": [], "total_a": 0, "total_b": 0, "count_a": 0, "count_b": 0, "tally": []}
+        return {"bets": [], "total_a": 0, "total_b": 0, "count_a": 0, "count_b": 0, "tally": [],
+                "opt_team": _opt_teams(conn, rnd)}
     if rnd["status"] == "voting":
         tally = db.vote_tally(conn, rnd["id"])
         return {"bets": [], "total_a": 0, "total_b": 0, "count_a": 0, "count_b": 0, "tally": tally,
-                "voted": sum(1 for t in tally if t["voted"])}
+                "voted": sum(1 for t in tally if t["voted"]), "opt_team": _opt_teams(conn, rnd)}
     bets = db.round_bets(conn, rnd["id"])
     return {
         "tally": [],
@@ -445,6 +471,7 @@ def _live_ctx(conn, rnd):
         "total_b": sum(b["amount"] for b in bets if b["choice"] == "B"),
         "count_a": sum(1 for b in bets if b["choice"] == "A"),
         "count_b": sum(1 for b in bets if b["choice"] == "B"),
+        "opt_team": _opt_teams(conn, rnd),
     }
 
 
@@ -615,7 +642,9 @@ async def pk_voice(request: Request):
     err = await g.submit(user["id"], role, wav, body.get("feats"))
     if err:
         return JSONResponse({"error": err}, status_code=400)
-    return JSONResponse({"ok": True})
+    # 模仿：馬上告訴本人相似度（別人要到排行榜才看得到）
+    score = g.imits.get(user["id"], {}).get("score") if role == "imitate" else None
+    return JSONResponse({"ok": True, "score": score})
 
 
 @app.get("/pk/clip/{round_id}/{clip_id}")

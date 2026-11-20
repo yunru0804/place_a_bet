@@ -26,7 +26,7 @@ class TapGame(BaseGame):
     render(s) {
       if (!side) { stage.innerHTML = ''; return; }
       if (!$('tap')) {
-        stage.innerHTML = '<button type="button" class="tap-btn" id="tap" disabled>準備…</button>';
+        stage.innerHTML = `<button type="button" class="tap-btn ${myTeamCls}" id="tap" disabled>準備…</button>`;
         $('tap').addEventListener('pointerdown', e => {
           e.preventDefault();
           if (!st || st.phase !== 'play' || performance.now() > at(st.ends_in)) return;

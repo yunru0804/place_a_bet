@@ -132,11 +132,20 @@
         {% endif %}
       {% endif %}
 
+      {# 每個選項對應的隊伍：PK 用選手自己的隊伍；一般下注盤看選項文字裡有沒有隊伍名稱 #}
+      {% set opt_team = {} %}
+      {% for s, label, p in [('A', round.option_a, pk_a), ('B', round.option_b, pk_b)] %}
+        {% set ns = namespace(t=(p.team if p and p.team else None)) %}
+        {% if not ns.t %}{% for k, v in TEAMS.items() %}{% if not ns.t and v in (label or '') %}{% set ns.t = k %}{% endif %}{% endfor %}{% endif %}
+        {% set _ = opt_team.update({s: ns.t}) %}
+      {% endfor %}
+
       {% if bet %}
         <div class="ticket">
           <div class="ticket-label">我的注單</div>
           <div class="ticket-body">
-            <span class="side side-{{ bet.choice|lower }}">{{ bet.choice }}</span>
+            {% if opt_team[bet.choice] %}<span class="team-dot team-{{ opt_team[bet.choice] }}"></span>
+            {% else %}<span class="side side-{{ bet.choice|lower }}"></span>{% endif %}
             <span class="ticket-opt">{{ round.option_a if bet.choice == 'A' else round.option_b }}</span>
             <span class="ticket-amt">{{ bet.amount }}</span>
           </div>
@@ -150,12 +159,17 @@
           <div class="choices" id="choices">
             {% for s, label, p in [('A', round.option_a, pk_a), ('B', round.option_b, pk_b)] %}
               {% set locked_out = my_side and my_side != s %}
-              <label class="choice choice-{{ s|lower }}{{ ' disabled' if locked_out else '' }}">
+              {% set t = opt_team[s] %}
+              <label class="choice {{ 'has-team team-' ~ t if t else 'choice-' ~ s|lower }}{{ ' disabled' if locked_out else '' }}">
                 <input type="radio" name="choice" value="{{ s }}"
                        {% if (bet and bet.choice == s) or my_side == s %}checked{% endif %}
                        {% if locked_out %}disabled{% endif %}>
-                <span class="card-face"><b>{{ s }}</b><em>{{ label }}</em>
+                <span class="card-face">
+                  {% set sheet = char_vars(p.avatar) if p and p.avatar else '' %}
+                  {% if sheet %}<span class="sprite choice-sprite" style="{{ sheet }}; --s: 1; --row: 6"></span>{% endif %}
+                  <em>{{ label }}</em>
                   {% if p and p.team %}<span class="team-tag team-{{ p.team }}">{{ TEAMS[p.team] }}</span>{% endif %}
+                  <b class="pick-mark" aria-hidden="true">✓</b>
                 </span>
               </label>
             {% endfor %}
@@ -184,9 +198,9 @@
 
       {% elif pk and round.game == 'live' %}
         <div class="live-vs">
-          <div class="live-name side-a-bg">{{ round.option_a }}</div>
+          <div class="live-name {{ 'team-bg team-' ~ pk_a.team if pk_a and pk_a.team else 'side-a-bg' }}">{{ round.option_a }}</div>
           <div class="vs">VS</div>
-          <div class="live-name side-b-bg">{{ round.option_b }}</div>
+          <div class="live-name {{ 'team-bg team-' ~ pk_b.team if pk_b and pk_b.team else 'side-b-bg' }}">{{ round.option_b }}</div>
           <p class="muted">{{ '上場吧！💪' if my_side else '現場對決中，等待主持人公布結果…' }}</p>
         </div>
 

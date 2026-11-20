@@ -44,6 +44,7 @@ class BaseGame:
         self.phase_end: float | None = None
         self.dirty = False
         self.changed = asyncio.Event()
+        self.acts: dict[int, int] = {}      # 每個人做了幾次動作，大螢幕用來讓那個人的角色動
         value = rnd["setting"] if "setting" in rnd.keys() else None
         if self.SETTING and value is not None:
             self.apply_setting(value)
@@ -59,7 +60,13 @@ class BaseGame:
             "ends_in": None if self.phase_end is None else max(0, int((self.phase_end - now) * 1000)),
         }
         msg.update(self.public())
+        if self.acts:
+            msg["acts"] = {str(u): n for u, n in self.acts.items()}
         return msg
+
+    def count_act(self, uid: int) -> None:
+        self.acts[uid] = self.acts.get(uid, 0) + 1
+        self.mark()
 
     async def push(self) -> None:
         self.dirty = False
@@ -122,16 +129,6 @@ class TeamGame(BaseGame):
         self.sides = {m["id"]: side for side, ms in members.items() for m in ms}
         self.names = {m["id"]: m["name"] for ms in members.values() for m in ms}
         self.size = {side: max(1, len(ms)) for side, ms in members.items()}
-        self.acts: dict[int, int] = {}      # 每個人做了幾次動作（拉／跳／搖），大螢幕用來讓那個人的角色動
-
-    def count_act(self, uid: int) -> None:
-        self.acts[uid] = self.acts.get(uid, 0) + 1
-        self.mark()
-
-    def message(self) -> dict:
-        msg = super().message()
-        msg["acts"] = {str(u): n for u, n in self.acts.items()}
-        return msg
 
 
 class SoloGame(BaseGame):

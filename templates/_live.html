@@ -14,8 +14,10 @@
 </table>
 {% elif round %}
 <div class="totals">
-  <div class="tot a"><b>A</b> {{ round.option_a }}<div class="big">{{ total_a }}</div><div class="muted small">{{ count_a }} 人</div></div>
-  <div class="tot b"><b>B</b> {{ round.option_b }}<div class="big">{{ total_b }}</div><div class="muted small">{{ count_b }} 人</div></div>
+  {% for s, label, total, count in [('A', round.option_a, total_a, count_a), ('B', round.option_b, total_b, count_b)] %}
+    {% set t = opt_team[s] if opt_team is defined else None %}
+    <div class="tot {{ 'has-team team-' ~ t if t else s|lower }}">{{ label }}<div class="big">{{ total }}</div><div class="muted small">{{ count }} 人</div></div>
+  {% endfor %}
 </div>
 <table>
   <thead><tr><th>玩家</th><th>選擇</th><th class="num">點數</th><th>時間</th></tr></thead>
@@ -23,7 +25,8 @@
   {% for b in bets %}
     <tr class="{{ '' if b.choice else 'muted' }}">
       <td>{% if b.team %}<span class="dot team-{{ b.team }}" title="{{ TEAMS[b.team] }}"></span>{% endif %}{{ b.name }}</td>
-      <td>{% if b.choice %}<span class="pill {{ b.choice|lower }}">{{ b.choice }}</span>{% else %}未下注{% endif %}</td>
+      {% set t = opt_team[b.choice] if (b.choice and opt_team is defined) else None %}
+      <td>{% if b.choice %}<span class="pill {{ 'has-team team-' ~ t if t else b.choice|lower }}">{{ round.option_a if b.choice == 'A' else round.option_b }}</span>{% else %}未下注{% endif %}</td>
       <td class="num">{{ b.amount if b.choice else '' }}</td>
       <td class="small">{{ (b.updated_at or '')[11:] }}</td>
     </tr>

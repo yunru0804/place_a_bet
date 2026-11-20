@@ -390,7 +390,7 @@ def place_bet(user_id: int, choice: str | None, amount: int) -> str:
             (user_id, rnd["id"], choice, amount),
         )
         label = rnd["option_a"] if choice == "A" else rnd["option_b"]
-        return f"{'已修改' if existing else '已下注'}：{choice}（{label}）{amount} 點。"
+        return f"{'已修改' if existing else '已下注'}：{label} {amount} 點。"
 
 
 def my_side(conn, rnd, user_id: int | None) -> str | None:

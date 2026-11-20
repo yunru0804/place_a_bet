@@ -8,7 +8,8 @@
      （每張一列 8 格；AI 常常一次畫不好 24 格，分開生成比較穩）
   C. 每格一張：picture/<名字>_frames/ 資料夾，檔名 <動作>_<1-8>.png
      動作名稱：tug_of_war / tug、jump_rope / jump、champagne / shake，
-     可省略：idle（待機）、win（勝利）、lose（失敗）、idle_front（正面待機）、win_front（正面勝利）
+     可省略：idle（待機）、win（勝利）、lose（失敗）、idle_front（正面待機）、win_front（正面勝利）、
+     think_front（思考）、tap_front（點擊）、talk_front（說話）、sing_front（唱歌）
      這種通常已經是透明背景、每張畫布一樣大，會保留角色在畫布裡的位置（不重新置中），
      如果是放大過的像素畫（例如每 6×6 一格），會自動還原成原生像素，保持銳利。
 優先順序：C → B → A。
@@ -19,7 +20,7 @@
   2. 切格：用空白間隔找出每一列、每一格；找不到剛好 8 格就平均切 8 等份
   3. 對齊：全部用同一個縮放比例（角色大小一致），每格水平置中、底部對齊，
      同一列共用上下範圍，所以跳起來的高度會保留
-  4. 輸出一列 8 格、8 列：待機、拔河、跳繩、開香檳、勝利、失敗、正面待機、正面勝利
+  4. 輸出一列 8 格、12 列：待機、拔河、跳繩、開香檳、勝利、失敗、正面待機、正面勝利、思考、點擊、說話、唱歌
 沒有待機：用開香檳第 1 格輕輕上下呼吸代替；沒有勝利／失敗：用待機代替；沒有正面：用側面代替。
 """
 
@@ -33,7 +34,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "picture"
 OUT = ROOT / "static" / "chars"
 CW, CH, COLS = 96, 116, 8
-ROW_KEYS = ["idle", "tug", "jump", "shake", "win", "lose", "idle_front", "win_front"]  # 網站依這個順序取列（app.py 的 SPRITE_ROWS）
+ROW_KEYS = ["idle", "tug", "jump", "shake", "win", "lose", "idle_front", "win_front",
+            "think_front", "tap_front", "talk_front", "sing_front"]  # 網站依這個順序取列（app.py 的 SPRITE_ROWS）
 EXTS = (".png", ".webp", ".jpg", ".jpeg")
 
 
@@ -197,7 +199,9 @@ def load_rows(name: str) -> dict[str, list[np.ndarray]]:
 
 FRAME_ALIASES = {"tug_of_war": "tug", "tug": "tug", "jump_rope": "jump", "jump": "jump",
                  "champagne": "shake", "shake": "shake", "idle": "idle", "win": "win", "lose": "lose",
-                 "idle_front": "idle_front", "win_front": "win_front"}
+                 "idle_front": "idle_front", "win_front": "win_front",
+                 "think_front": "think_front", "tap_front": "tap_front", "talk_front": "talk_front",
+                 "sing_front": "sing_front"}
 
 
 def pixel_block(arrs: list[np.ndarray]) -> tuple[int, int, int]:
@@ -228,12 +232,19 @@ def strip_rope(jump: list[np.ndarray], others: list[np.ndarray]) -> list[np.ndar
         return out
     other = colors(others)
     rope = {c for c in colors(jump) - other if sum(c) / 3 > 180}
-    if not rope:
-        return jump
+    # 新版跳繩圖本來就沒畫繩子：淺色像素很少就當作沒有繩子，只做置中（不然會誤刪灰塵、反光）
+    total = sum(int((a[..., 3] > 0).sum()) for a in jump)
+    code = lambda px: (px[..., 0].astype(np.int32) << 16) | (px[..., 1].astype(np.int32) << 8) | px[..., 2]
+    rope_codes = np.array([(r << 16) | (g << 8) | bl for r, g, bl in rope], dtype=np.int32)
+    rope_px = sum(int((np.isin(code(a[..., :3]), rope_codes) & (a[..., 3] > 0)).sum()) for a in jump)
+    has_rope = rope_px > total * 0.03
     out = []
     for a in jump:
         a = a.copy()
         h, w = a.shape[:2]
+        if not has_rope:
+            out.append(center_body(a))
+            continue
         rgb = a[..., :3].tolist()
         gone = np.zeros((h, w), bool)
         for y in range(h):
@@ -275,19 +286,24 @@ def strip_rope(jump: list[np.ndarray], others: list[np.ndarray]) -> list[np.ndar
                 if (len(comp) < 30 and all(a[p][:3].max() < 50 for p in comp)) or len(comp) < 6:
                     for p in comp:
                         a[p][3] = 0
-        # 每格以身體為中心左右對齊：原圖角色在畫布裡會左右飄，跳起來會撞到繩子
-        body = (a[..., 3] > 0) & (a[..., :3].max(-1) >= 50)
-        xs = np.where(body)[1]
-        if len(xs):
-            shift = w // 2 - int(round(np.median(xs)))
-            a = np.roll(a, shift, axis=1)
-            if shift > 0:
-                a[:, :shift, 3] = 0
-            elif shift < 0:
-                a[:, shift:, 3] = 0
-        out.append(a)
-    print(f"  跳繩：拿掉畫在圖上的繩子（{len(rope)} 種顏色）、每格置中")
+        out.append(center_body(a))
+    print("  跳繩：" + (f"拿掉畫在圖上的繩子（{len(rope)} 種顏色）、" if has_rope else "圖上沒有繩子，") + "每格置中")
     return out
+
+
+def center_body(a: np.ndarray) -> np.ndarray:
+    """每格以身體為中心左右對齊：原圖角色在畫布裡會左右飄，跳起來會撞到網站畫的繩子。"""
+    w = a.shape[1]
+    body = (a[..., 3] > 0) & (a[..., :3].max(-1) >= 50)
+    xs = np.where(body)[1]
+    if len(xs):
+        shift = w // 2 - int(round(np.median(xs)))
+        a = np.roll(a, shift, axis=1)
+        if shift > 0:
+            a[:, :shift, 3] = 0
+        elif shift < 0:
+            a[:, shift:, 3] = 0
+    return a
 
 
 def build_from_frames(name: str, folder: Path) -> Path:
@@ -345,7 +361,9 @@ def save_sheet(name: str, rows: dict[str, list[Image.Image]], fw: int, fh: int, 
             f = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
             f.paste(base, (0, dy))
             rows["idle"].append(f)
-    for k, alt in (("win", "idle"), ("lose", "idle"), ("idle_front", "idle"), ("win_front", "win")):
+    for k, alt in (("win", "idle"), ("lose", "idle"), ("idle_front", "idle"), ("win_front", "win"),
+                   ("think_front", "idle_front"), ("tap_front", "idle_front"), ("talk_front", "idle_front"),
+                   ("sing_front", "talk_front")):
         if k not in rows:
             rows[k] = rows[alt]
             print(f"  沒有 {k}，用 {alt} 代替")

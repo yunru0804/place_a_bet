@@ -10,7 +10,7 @@
   {% for s, p, name in [('A', pk_a, round.option_a), ('B', pk_b, round.option_b)] %}
     <div class="lane {{ 'team-' ~ p.team if p and p.team else '' }}{{ ' me' if my_side == s else '' }}" id="panel-{{ s }}">
       <div class="lane-top">
-        {% if round.team_a %}<span class="team-dot"></span>{% else %}<span class="side side-{{ s|lower }}">{{ s }}</span>{% endif %}
+        {% if p and p.team %}<span class="team-dot"></span>{% endif %}{# PK 也用選手自己的隊伍顏色，不再顯示 A／B #}
         <b class="lane-name">{{ name }}</b>
         {% if my_side == s %}<em class="you">你</em>{% endif %}
         <span class="lane-score" id="big-{{ s }}">–</span>
@@ -26,20 +26,22 @@
   </div>
 
   {% set sheet = char_uri(user.avatar) if (user is defined and user and round.team_a and my_side) else None %}
-  {% if sheet and round.game in ('tug', 'jump', 'shake') %}
+  {% if not sheet and user is defined and user and round.game in SOLO_GAMES and my_side %}{% set sheet = char_uri(user.avatar) %}{% endif %}
+  {% if sheet and round.game in ('tug', 'jump', 'shake', 'voice') %}
     <div class="my-sprite{{ ' flip' if round.game == 'tug' and my_side == 'B' else '' }}">
-      <div class="sprite" id="my-sprite" style="{{ char_vars(user.avatar) }}; --s: 2; --row: 0"></div>
+      <div class="sprite" id="my-sprite" style="{{ char_vars(user.avatar) }}; --s: 2; --row: {{ 6 if round.game in SOLO_GAMES else 0 }}"></div>
     </div>
   {% endif %}
 
   {# 大螢幕：兩隊有設定角色的人（screen 頁才會給 crowd） #}
   {% if crowd is defined and crowd %}
     <div class="crowd" id="crowd">
-      {% for k in ('A', 'B') %}
+      {% for k in (('S',) if round.game in SOLO_GAMES else ('A', 'B')) %}
         <div class="crowd-side crowd-{{ k|lower }}">
           {% for c in crowd if c.side == k %}
             <div class="crowd-one" data-side="{{ k }}">
-              <div class="sprite crowd-sprite" data-uid="{{ c.uid }}" data-side="{{ k }}" style="{{ c.vars }}; --s: 1; --row: 0"></div>
+              <div class="sprite crowd-sprite" data-uid="{{ c.uid }}" data-side="{{ k }}" style="{{ c.vars }}; --s: 1; --row: {{ 0 if round.team_a else 6 }}"></div>
+              <span class="crowd-score" hidden></span>
               <span class="crowd-name">{{ c.name }}</span>
             </div>
           {% endfor %}
@@ -74,8 +76,16 @@
   const pop = node => { node.classList.remove('hit'); void node.offsetWidth; node.classList.add('hit'); };
 
   // ---------------- 像素角色（團體賽；沒設定角色就什麼都不做） ----------------
-  // 列：0 待機 1 拔河 2 跳繩 3 開香檳 4 勝利 5 失敗 6 正面待機 7 正面勝利
-  // ME：自己（玩家手機）；CROWD：兩隊所有人（大螢幕）
+  // 列：0 待機 1 拔河 2 跳繩 3 開香檳 4 勝利 5 失敗 6 正面待機 7 正面勝利 8 思考 9 點擊 10 說話 11 唱歌
+  // （全員賽：錄音時唱歌、排行榜前三名歡呼）
+  // ME：自己（玩家手機）；CROWD：團體賽兩隊所有人／PK 兩位選手（大螢幕）
+  const IS_TEAM = el.classList.contains('is-team');
+  const IS_SOLO = el.classList.contains('is-solo');
+  // 自己那一邊的隊伍顏色 class（PK 選手的大按鈕也用自己隊伍的顏色）
+  const myTeamCls = side && $('panel-' + side) ? ($('panel-' + side).className.match(/team-\w+/)?.[0] || '') : '';
+  const THINK_GAMES = ['math', 'memory', 'flash'];   // 要動腦的 PK：平常在思考，作答才點
+  // PK 遊戲的階段名稱各不相同（question、go、run、input…），倒數和結束以外都算比賽中
+  const inGame = ph => IS_TEAM ? ph === 'play' : !['countdown', 'done', 'ready'].includes(ph);
   const mkSprite = e => {
     let key = '', back = null;
     const set = (row, cls, extra = {}) => {
@@ -87,7 +97,7 @@
       e.style.setProperty('--row', row);
       e.style.setProperty('--frame', extra.frame || 0);
       e.style.setProperty('--dur', (extra.dur || 700) + 'ms');
-      e.classList.remove('loop', 'hold', 'once', 'shaking', 'hop');
+      e.classList.remove('loop', 'hold', 'once', 'shaking', 'hop', 'tapping');
       void e.offsetWidth;                              // 讓 once 從第 1 格重新播
       e.classList.add(cls);
     };
@@ -97,41 +107,81 @@
       hold: (row, frame = 0) => set(row, 'hold', {frame}),
       // 播一次；給 then 的話播完再切回去
       once(row, dur = 700, then) { set(row, 'once', {dur}); if (then) back = setTimeout(then, dur); },
-      hop(dur = 520) { set(2, 'hop', {dur}); back = setTimeout(() => set(2, 'hold', {frame: 6}), dur + 80); },
-      // 有動作才動：每按一下／搖一下就續 0.35 秒，停手就回到第 1 格不動
-      burst(row, cls) {
+      hop(dur = 640) { set(2, 'hop', {dur}); back = setTimeout(() => set(2, 'hold', {frame: 0}), dur + 60); },
+      // 有動作才動：每按一下／搖一下就續 0.35 秒，停手就回到第 1 格不動（或交給 after）
+      burst(row, cls, after, ms = 350) {
         if (!e) return;
         if (!key.startsWith(`${row}|${cls}|`)) set(row, cls);
         clearTimeout(back);
-        back = setTimeout(() => set(row, 'hold'), 350);
+        back = setTimeout(after || (() => set(row, 'hold')), ms);
       },
       shaking() { this.burst(3, 'shaking'); },
       pulling() { this.burst(1, 'loop'); },
-      act() { GAME === 'tug' ? this.pulling() : GAME === 'jump' ? this.hop() : this.shaking(); },
+      act() {
+        if (IS_SOLO) {                                 // 全員賽：開始錄音 → 唱到錄音時間結束
+          const sec = (st && (st.phase === 'imitate' ? st.imit_sec : st.clip_sec)) || 5;
+          return this.burst(11, 'loop', () => set(6, 'loop'), sec * 1000);
+        }
+        if (!IS_TEAM) {                                // PK：點一下 → 點擊動作；停手回到思考／準備點
+          const think = THINK_GAMES.includes(GAME);
+          return this.burst(9, 'tapping', () => think ? set(8, 'loop') : set(9, 'hold'), think ? 700 : 350);
+        }
+        GAME === 'tug' ? this.pulling() : GAME === 'jump' ? this.hop() : this.shaking();
+      },
     };
   };
   const ME = mkSprite($('my-sprite'));
   const CROWD = [...document.querySelectorAll('.crowd-sprite')]
     .map(e => ({uid: e.dataset.uid, side: e.dataset.side, sp: mkSprite(e), seen: null}));
   const crowdSide = k => CROWD.filter(c => c.side === k);
+  // PK 大螢幕：兩位選手的角色各站進自己的比分框
+  if (CROWD.length && !IS_TEAM && !IS_SOLO) {
+    for (const c of CROWD) {
+      const lane = $('panel-' + c.side), one = c.sp.el.parentNode;
+      one.classList.add('in-lane');
+      lane.classList.add('has-sprite');
+      lane.appendChild(one);
+    }
+    $('crowd').hidden = true;
+  }
   // 每個階段的預設動作（遊戲裡的即時動作：自己由各遊戲呼叫 ME.xxx，大螢幕看 acts 有沒有增加）
   const idleOne = (sp, phase) => {
     if (!sp.on || phase === 'done') return;
+    if (IS_SOLO) return sp.loop(6);
+    if (!IS_TEAM) {                                 // PK（只有大螢幕有）：正面站著 → 比賽中思考／準備點
+      if (!inGame(phase)) return sp.loop(6);
+      return THINK_GAMES.includes(GAME) ? sp.loop(8) : sp.hold(9);
+    }
     if (phase !== 'play') return sp.loop(0);
     if (GAME === 'tug') sp.hold(1);                 // 抓著繩子站好，按「拉」才拉
-    else if (GAME === 'jump') sp.hold(2, 6);        // 站在地上拿著握把（跳繩列第 7 格）
+    else if (GAME === 'jump') sp.hold(2, 0);        // 站在地上拿著握把（跳繩列第 1 格）
     else if (GAME === 'shake') sp.hold(3);
   };
   const meIdle = phase => { idleOne(ME, phase); CROWD.forEach(c => idleOne(c.sp, phase)); };
-  const crowdActs = m => {
-    if (!CROWD.length || !m.acts) return;
+  // 開頁後收到的第一筆狀態當基準（還沒人動作時狀態裡沒有 acts，要當 0，不然第一個動作會被吃掉）
+  const crowdActs = (m, first) => {
+    if (!CROWD.length) return;
+    const acts = m.acts || {};
     for (const c of CROWD) {
-      const n = m.acts[c.uid] || 0;
-      if (c.seen !== null && n > c.seen && m.phase === 'play') c.sp.act();
+      const n = acts[c.uid] || 0;
+      if (!first && n > c.seen && inGame(m.phase)) c.sp.act();
       c.seen = n;
     }
   };
+  // 全員賽公布排行：前三名歡呼；大螢幕的角色腳下顯示相似度
+  const soloReveal = m => {
+    if (!IS_SOLO || m.phase !== 'reveal' || !m.ranking) return;
+    const rankOf = uid => m.ranking.find(r => String(r.uid) === String(uid));
+    const me = rankOf(el.dataset.uid);
+    if (ME.on && me && me.rank <= 3) ME.once(7, 1400);
+    for (const c of CROWD) {
+      const r = rankOf(c.uid), tag = c.sp.el.parentNode.querySelector('.crowd-score');
+      if (r && r.rank <= 3) c.sp.once(7, 1400);
+      if (tag && r) { tag.hidden = false; tag.textContent = `${['🥇', '🥈', '🥉'][r.rank - 1] || r.rank} ${(+r.score).toFixed(1)}%`; }
+    }
+  };
   const endSprites = result => {
+    if (IS_SOLO) return;                             // 全員賽：維持排行榜時的樣子
     const fin = (sp, k) => result ? sp.once(result === k ? 7 : 5, 1400) : sp.loop(0);   // 贏：正面歡呼；輸：側面跪地
     if (ME.on) fin(ME, side);
     CROWD.forEach(c => fin(c.sp, c.side));
@@ -180,8 +230,8 @@
       document.querySelectorAll('.badge.locked').forEach(b => { b.className = 'badge playing'; b.textContent = '⚡ 比賽中'; });
     }
     if (prev && prev.phase === 'countdown' && m.phase !== 'countdown') buzz(0, 'go');
-    if (!prev || prev.phase !== m.phase) meIdle(m.phase);
-    crowdActs(m);
+    if (!prev || prev.phase !== m.phase) { meIdle(m.phase); soloReveal(m); }
+    crowdActs(m, !prev);
     if (!G[GAME]) return;
     label.textContent = G[GAME].label(m);
     G[GAME].render(m);

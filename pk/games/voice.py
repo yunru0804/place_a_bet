@@ -148,6 +148,11 @@ class VoiceGame(SoloGame):
             d["ranking"] = self.ranking
         return d
 
+    def handle(self, side, data):
+        # 手機開始錄音時送 {a: 'rec'}：大螢幕讓那個人的角色唱歌
+        if data.get("a") == "rec" and self.phase in ("record", "imitate") and self.uid is not None:
+            self.count_act(self.uid)
+
     async def submit(self, uid: int, role: str, wav: bytes, feats) -> str | None:
         if uid not in self.sides:
             return "你不是這場的玩家。"
@@ -321,9 +326,11 @@ class VoiceGame(SoloGame):
       voBusy = false; voMsg = '麥克風打不開：請允許使用麥克風，或關掉分頁重開連結'; voRender(); return;
     }
     buzz(20, 'blip');
+    send({a: 'rec'}); ME.loop(11);                     // 大螢幕／自己的角色開始唱
     const pending = voRecord(role === 'imitate' ? (st.imit_sec || st.clip_sec || 5) : ((st && st.clip_sec) || 5));
     voRender();
     const pcm = await pending;
+    ME.loop(6);
     voMsg = '分析中…'; voRender();
     const p16 = VX.resample(pcm, voCtx.sampleRate);
     const f = VX.features(p16);
@@ -340,7 +347,8 @@ class VoiceGame(SoloGame):
       const j = await r.json().catch(() => ({}));
       if (r.ok && !j.error) {
         voSent[role] = true;
-        voMsg = role === 'prompt' ? '題目送出 ✓' : '送出 ✓';
+        voMsg = role === 'prompt' ? '題目送出 ✓'
+          : (j.score != null ? `送出 ✓ 相似度 ${(+j.score).toFixed(1)}%` : '送出 ✓');
         buzz(30, 'coin');
       } else voMsg = j.error || '上傳失敗，再試一次';
     } catch (e) { voMsg = '上傳失敗，再試一次'; }
@@ -402,9 +410,11 @@ class VoiceGame(SoloGame):
     render(s) {
       if (!$('vo')) {
         stage.innerHTML = '<div class="vo" id="vo"><div class="vo-wheel-box" id="vowheelbox" hidden></div>' +
+          '<div class="vo-me" id="vome"></div>' +
           '<div class="vo-role" id="vorole"></div>' +
           '<div class="vo-meter"><i id="volevel"></i></div><div class="vo-msg" id="vomsg"></div>' +
           '<div class="vo-btns" id="vobtns"></div><ol class="vo-rank" id="vorank"></ol></div>';
+        if (ME.on) $('vome').appendChild(ME.el.parentNode);   // 自己的角色（錄音時會唱歌）
         stage.addEventListener('click', e => {
           const b = e.target.closest('[data-act]');
           if (!b || b.disabled) return;
@@ -444,13 +454,14 @@ class VoiceGame(SoloGame):
       } else if (s.phase === 'reveal') {
         const me = (s.ranking || []).find(r => r.uid === VO_ME);
         role = !s.prompt_ok ? '沒有人出題，本輪結束'
-          : me ? `你第 <b>${me.rank}</b> 名 <b>+${me.award}</b>`
+          : me ? `你第 <b>${me.rank}</b> 名 <b>+${me.award}</b>・相似度 <b>${(+me.score).toFixed(1)}%</b>`
           : side ? '你這輪沒有模仿 😢' : '';
         if (s.prompt_clip) btns = voBtn('play', `▶ 原音（${qn}）`, 'play', `data-clip="${s.prompt_clip}"`);
         const medal = r => ['🥇', '🥈', '🥉'][r - 1] || `${r}`;
         rank = (s.ranking || []).map(r =>
           `<li class="${r.uid === VO_ME ? 'me' : ''}"><span class="vr-rank">${medal(r.rank)}</span>` +
-          `<span class="vr-name">${esc(r.name)}<small>${r.score} 分</small></span>` +
+          `<span class="vr-name">${esc(r.name)}<span class="vr-sim"><i style="width:${Math.max(2, Math.min(100, r.score))}%"></i></span>` +
+          `<small>相似度 ${(+r.score).toFixed(1)}%</small></span>` +
           `<span class="vr-award">+${r.award}</span>` +
           `<button type="button" class="vr-play" data-act="play" data-clip="${r.clip}">▶</button></li>`).join('');
       } else if (side) {

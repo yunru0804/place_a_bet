@@ -39,6 +39,11 @@ class Hub:
             return
         if isinstance(data, dict):
             g.uid = user_id
+            # PK：比賽中選手送來的每個操作都算一次動作（團體賽在各遊戲裡自己算有效的）
+            # PK 遊戲的階段名稱各不相同（question、go、run、input…），倒數和結束以外都算比賽中
+            if not getattr(g, "team", False) and not getattr(g, "solo", False) \
+                    and g.phase not in ("countdown", "done"):
+                g.count_act(user_id)
             g.handle(g.sides[user_id], data)
 
     async def start(self, rnd) -> None:

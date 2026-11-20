@@ -37,7 +37,7 @@ class StopwatchGame(BaseGame):
       if (s.phase === 'run' && changed('phase', 'round_no')) { runStart = recvAt; myStop = null; myStopRound = s.round_no; }
       if (!$('clock')) {
         stage.innerHTML = '<div class="sw-target" id="swtarget"></div><div class="clock" id="clock">0.00</div>' +
-          (side ? '<button type="button" class="tap-btn stop-btn" id="stopbtn" disabled>準備…</button>' : '');
+          (side ? `<button type="button" class="tap-btn stop-btn ${myTeamCls}" id="stopbtn" disabled>準備…</button>` : '');
         if (side) $('stopbtn').addEventListener('pointerdown', e => {
           e.preventDefault();
           if (!st || st.phase !== 'run' || myStop !== null) return;

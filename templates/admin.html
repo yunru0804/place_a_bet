@@ -25,8 +25,8 @@
       <div id="normal-fields">
         <label class="field">題目<input name="title" required placeholder="例如：第一場誰會贏？"></label>
         <div class="two">
-          <label class="field">選項 A<input name="option_a" required></label>
-          <label class="field">選項 B<input name="option_b" required></label>
+          <label class="field">選項一<input name="option_a" required></label>
+          <label class="field">選項二<input name="option_b" required></label>
         </div>
       </div>
       <div id="pk-fields" hidden>
@@ -103,9 +103,9 @@
       {% elif round.status == 'locked' and round.kind == 'pk' and round.game == 'live' %}
         {% for s, name in [('A', round.option_a), ('B', round.option_b)] %}
           <form method="post" action="/admin/rounds/{{ round.id }}/settle"
-                onsubmit="return confirm('確定 {{ s }}（{{ name }}）贏？結算後無法更改。')">
+                onsubmit="return confirm('確定「{{ name }}」贏？結算後無法更改。')">
             <input type="hidden" name="result" value="{{ s }}">
-            <button type="submit" class="primary">🏆 {{ s }} {{ name }} 贏</button>
+            <button type="submit" class="primary">🏆 {{ name }} 贏</button>
           </form>
         {% endfor %}
         <form method="post" action="/admin/rounds/{{ round.id }}/reopen">
@@ -123,14 +123,14 @@
         {% endif %}
       {% elif round.status == 'locked' %}
         <form method="post" action="/admin/rounds/{{ round.id }}/settle"
-              onsubmit="return confirm('確定正確答案是 A：{{ round.option_a }}？結算後無法更改。')">
+              onsubmit="return confirm('確定正確答案是「{{ round.option_a }}」？結算後無法更改。')">
           <input type="hidden" name="result" value="A">
-          <button type="submit" class="primary">✅ A 正確</button>
+          <button type="submit" class="primary">✅ {{ round.option_a }}</button>
         </form>
         <form method="post" action="/admin/rounds/{{ round.id }}/settle"
-              onsubmit="return confirm('確定正確答案是 B：{{ round.option_b }}？結算後無法更改。')">
+              onsubmit="return confirm('確定正確答案是「{{ round.option_b }}」？結算後無法更改。')">
           <input type="hidden" name="result" value="B">
-          <button type="submit" class="primary">✅ B 正確</button>
+          <button type="submit" class="primary">✅ {{ round.option_b }}</button>
         </form>
         <form method="post" action="/admin/rounds/{{ round.id }}/reopen">
           <button type="submit">重新開盤</button>
@@ -315,7 +315,7 @@
         <td>{% if r.status == 'void' %}<span class="muted">作廢</span>
             {% elif r.game in SOLO_GAMES %}🏁 全員賽
             {% elif r.team_a %}🏆 {{ r.option_a if r.result == 'A' else r.option_b }}
-            {% else %}{{ r.result }}（{{ r.option_a if r.result == 'A' else r.option_b }}）{% endif %}</td>
+            {% else %}{{ r.option_a if r.result == 'A' else r.option_b }}{% endif %}</td>
         <td class="num">{{ r.total_a }} / {{ r.total_b }}</td>
       </tr>
     {% endfor %}
